@@ -1,0 +1,21 @@
+{
+    "name": "SBE Assistant Master",
+    "short_name": "SBE Mentor",
+    "description": "Trợ lý ảo học Specification by Example cá nhân",
+    "start_url": "./index.html",
+    "display": "standalone",
+    "background_color": "#1e1e1e",
+    "theme_color": "#007acc",
+    "icons": [
+        {
+            "src": "https://via.placeholder.com/192/007acc/ffffff?text=SBE",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "https://via.placeholder.com/512/007acc/ffffff?text=SBE",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}
