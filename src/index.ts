@@ -45,27 +45,30 @@ btnSend.addEventListener("click", async () => {
   };
 
   try {
-    // TODO: Ở bước sau, chúng ta sẽ thay phần này bằng fetch() gọi Cloudflare Functions API
-    /*
-        const response = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const data = await response.json();
-        */
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-    // Tạm thời mô phỏng phản hồi từ AI Mentor
-    setTimeout(() => {
-      appendMessage(
-        "SBE Mentor",
-        "Hệ thống đã ghi nhận kịch bản của bạn. Chúng ta sẽ kết nối API thực tế ở bước sau nhé!",
-      );
-      btnSend.disabled = false;
-      btnSend.textContent = "Gửi Kịch bản";
-    }, 1000);
+    if (!response.ok) {
+      throw new Error("Lỗi từ server");
+    }
+
+    const data = await response.json();
+
+    // In phản hồi của API ra khung chat
+    appendMessage("SBE Mentor", data.message);
+
+    // Khôi phục trạng thái nút bấm
+    btnSend.disabled = false;
+    btnSend.textContent = "Gửi Kịch bản";
   } catch (error) {
-    appendMessage("Hệ thống", "Lỗi kết nối. Vui lòng thử lại.", true);
+    appendMessage(
+      "Hệ thống",
+      "Lỗi kết nối đến Cloudflare Functions. Vui lòng thử lại.",
+      true,
+    );
     btnSend.disabled = false;
     btnSend.textContent = "Gửi Kịch bản";
   }
