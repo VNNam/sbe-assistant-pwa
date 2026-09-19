@@ -5,7 +5,7 @@
   "assets": {
     "directory": "./public/",
   },
-  "d1_namespaces": [
+  "d1_databases": [
     {
       "binding": "DB",
       "database_name": "sbe-memory-db",
