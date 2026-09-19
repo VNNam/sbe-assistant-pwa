@@ -128,3 +128,43 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(console.error);
   });
 }
+// ==========================================
+// 7. TÍNH NĂNG KÉO THẢ ĐIỀU CHỈNH MÀN HÌNH
+// ==========================================
+const appContainer = document.getElementById("appContainer") as HTMLDivElement;
+const resizer = document.getElementById("dragMe") as HTMLDivElement;
+
+let isResizing = false;
+
+// Khi nhấn chuột xuống thanh resizer
+resizer.addEventListener("mousedown", (e) => {
+  isResizing = true;
+  document.body.style.cursor = "col-resize";
+  // Tạm thời vô hiệu hóa việc bôi đen chữ khi đang kéo
+  document.body.style.userSelect = "none";
+});
+
+// Khi di chuyển chuột trên toàn màn hình
+document.addEventListener("mousemove", (e) => {
+  if (!isResizing) return;
+
+  // Tính toán % chiều rộng mới dựa trên tọa độ X của chuột
+  let newLeftWidth = (e.clientX / window.innerWidth) * 100;
+
+  // Giới hạn không cho kéo quá nhỏ hoặc quá to (20% đến 80%)
+  if (newLeftWidth < 20) newLeftWidth = 20;
+  if (newLeftWidth > 80) newLeftWidth = 80;
+
+  // Cập nhật lại thuộc tính CSS Grid
+  appContainer.style.gridTemplateColumns = `${newLeftWidth}% 5px 1fr`;
+});
+
+// Khi nhả chuột ra
+document.addEventListener("mouseup", () => {
+  if (isResizing) {
+    isResizing = false;
+    document.body.style.cursor = "default";
+    // Khôi phục khả năng bôi đen văn bản
+    document.body.style.userSelect = "auto";
+  }
+});

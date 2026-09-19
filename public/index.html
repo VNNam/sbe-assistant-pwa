@@ -15,8 +15,22 @@
       }
       .app-container {
         display: grid;
-        grid-template-columns: 60% 40%;
+        /* Cấu trúc 3 cột: Nửa trái (60%) - Thanh kéo (5px) - Nửa phải (Phần còn lại) */
+        grid-template-columns: 60% 5px 1fr;
         height: 100vh;
+      }
+
+      /* Giao diện thanh kéo thả */
+      .resizer {
+        background-color: #ddd;
+        cursor: col-resize;
+        z-index: 10;
+        transition: background-color 0.2s;
+      }
+
+      .resizer:hover,
+      .resizer:active {
+        background-color: #007acc; /* Đổi màu xanh khi di chuột hoặc đang kéo */
       }
       .ai-chat-section {
         background-color: #f4f4f9;
@@ -90,7 +104,8 @@
           <button id="btnRecall">Tổng kết (Recall)</button>
         </div>
       </div>
-
+      <!-- THANH KÉO THẢ NẰM Ở GIỮA -->
+      <div class="resizer" id="dragMe"></div>
       <!-- Nửa phải: Gherkin Workspace -->
       <div class="gherkin-editor-section">
         <textarea

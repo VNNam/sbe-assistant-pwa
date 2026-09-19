@@ -14,31 +14,30 @@ export async function onRequestPost(context) {
 
     const apiKey = env.GEMINI_API_KEY;
     if (!apiKey) {
-      return new Response(
-        JSON.stringify({ error: "Chưa cấu hình API Key trên Cloudflare" }),
-        { status: 500 },
-      );
+      return new Response(JSON.stringify({ error: "Chưa cấu hình API Key" }), {
+        status: 500,
+      });
     }
 
-    // 1. Thiết lập System Prompt đóng vai trò SBE Mentor
-    const systemPrompt = `Bạn là SBE Mentor, một chuyên gia về Specification by Example và Gherkin.
-Khóa học có 4 tuần. Người học đang ở Tuần ${currentWeek}.
-Hãy đánh giá kịch bản Gherkin sau đây của người học:
-"""
-${scenarioText}
-"""
-Trả về cấu trúc JSON sau (không chứa markdown code block, chỉ trả về JSON thuần):
-{
-  "message": "Nhận xét ngắn gọn, chỉ ra điểm sáng và điểm cần cải thiện dựa trên tư duy SBE (dưới 60 từ).",
-  "analysis": {
-    "mistakes": ["Lỗi 1 (ví dụ: gộp quá nhiều bước When)", "Lỗi 2 (nếu có)"],
-    "best_scenario": "Viết lại kịch bản Gherkin này một cách chuẩn xác, tối ưu hóa theo nguyên tắc SBE."
-  }
-}`;
+    // 1. Thiết lập Prompt ép kiểu JSON 5 khối cho AI
+    const systemPrompt = `Bạn là SBE Mentor, một chuyên gia về Specification by Example.
+    Khóa học có 4 tuần. Người học đang ở Tuần ${currentWeek}.
+    Hãy phân tích kịch bản Gherkin sau của người học:
+    ${scenarioText}
 
-    // 2. Gọi Gemini REST API (sử dụng model 2.5-flash để tối ưu tốc độ)
+    Trả về đúng cấu trúc JSON sau (chỉ JSON, không dùng markdown block):
+    {
+      "message": "Nhận xét ngắn gọn, chỉ ra điểm sáng và điểm cần cải thiện.",
+      "analysis": {
+        "learned_concepts": ["Khái niệm 1", "Khái niệm 2"],
+        "mistakes": ["Lỗi sai 1", "Lỗi sai 2"],
+        "best_scenario": "Viết lại kịch bản Gherkin một cách chuẩn xác nhất.",
+        "recommendations": ["Lời khuyên hành động 1", "Lời khuyên 2"]
+      }
+    }`;
+
+    // 2. Gọi Gemini REST API
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-
     const geminiResponse = await fetch(geminiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -46,31 +45,69 @@ Trả về cấu trúc JSON sau (không chứa markdown code block, chỉ trả 
         contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
         generationConfig: {
           response_mime_type: "application/json",
-          temperature: 0.2, // Giảm độ ngẫu nhiên để AI tập trung vào logic Gherkin
+          temperature: 0.2,
         },
       }),
     });
 
     if (!geminiResponse.ok) {
-      const errData = await geminiResponse.text();
-      throw new Error(`Gemini API Error: ${errData}`);
+      const err = await geminiResponse.text();
+      throw new Error(`Gemini API Error: ${err}`);
     }
 
     const geminiData = await geminiResponse.json();
-
-    // 3. Trích xuất văn bản JSON từ phản hồi của AI
     const aiText = geminiData.candidates[0].content.parts[0].text;
     const parsedAIResponse = JSON.parse(aiText);
 
-    // 4. Trả kết quả về cho Front-end
+    // 3. Đóng gói dữ liệu Memory Block để lưu trữ
+    const memoryBlock = {
+      week: currentWeek,
+      learned_concepts: parsedAIResponse.analysis?.learned_concepts || [],
+      mistakes: parsedAIResponse.analysis?.mistakes || [],
+      best_scenario: parsedAIResponse.analysis?.best_scenario || "",
+      recommendations: parsedAIResponse.analysis?.recommendations || [],
+    };
+
+    // 4. LƯU VÀO DATABASE CLOUDFLARE D1
+    if (env.DB) {
+      // Lưu lịch sử chat ngắn hạn
+      await env.DB.prepare(
+        "INSERT INTO Chat_History (week_id, role, content) VALUES (?, ?, ?), (?, ?, ?)",
+      )
+        .bind(
+          currentWeek,
+          "user",
+          scenarioText,
+          currentWeek,
+          "model",
+          parsedAIResponse.message,
+        )
+        .run();
+
+      // Lưu khối trí nhớ dài hạn (RAG)
+      await env.DB.prepare(
+        "INSERT INTO Memory_Blocks (week_id, summary_json) VALUES (?, ?)",
+      )
+        .bind(currentWeek, JSON.stringify(memoryBlock))
+        .run();
+    } else {
+      console.warn(
+        "Cảnh báo: Biến env.DB chưa được liên kết. Không thể lưu vào D1.",
+      );
+    }
+
+    // 5. Trả kết quả về cho Frontend để hiển thị
     return new Response(JSON.stringify(parsedAIResponse), {
       headers: { "Content-Type": "application/json" },
       status: 200,
     });
   } catch (error) {
     return new Response(
-      JSON.stringify({ error: "Lỗi xử lý máy chủ: " + error.message }),
-      { status: 500 },
+      JSON.stringify({ error: "Lỗi máy chủ: " + error.message }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      },
     );
   }
 }
