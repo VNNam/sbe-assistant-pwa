@@ -271,21 +271,44 @@ Tại thời điểm bắt đầu phiên làm việc:
 
 ---
 
+### Giai đoạn 13: Kích hoạt Luồng Trò chuyện Tự do (Free-form Chat) với SBE Mentor qua `chatInput` và phím Enter
+
+- **Hiện tượng & Vấn đề phát hiện:**
+  - Trên giao diện Split-screen, thanh nhập liệu `#chatInput` ("Nhắn tin tự do với Mentor...") đã có sẵn trong HTML nhưng chưa được lắng nghe sự kiện nào trong `src/index.ts`.
+  - Khi người dùng gõ tin nhắn và nhấn phím `Enter`, không có nội dung nào được gửi đi, không có yêu cầu nào gửi lên server và không có phản hồi từ Mentor.
+  - Endpoint `/api/chat` trước đó chỉ chấp nhận payload kịch bản Gherkin (`scenarioText`), nếu không có `scenarioText` sẽ trả về lỗi HTTP 400 (`"Thiếu nội dung kịch bản"`).
+- **Phương án Kỹ thuật Triển khai:**
+  1. **Nâng cấp Backend Endpoint ([`functions/api/chat.ts`](./functions/api/chat.ts)) sang Chế độ Kép (Dual Mode):**
+     - **Chế độ 1 (Scenario Mode):** Nếu có `scenarioText`, tiếp tục đánh giá kịch bản Gherkin, phân tích 5 khối kiến thức, lưu vào `Chat_History` và `Memory_Blocks`.
+     - **Chế độ 2 (Conversation Mode):** Nếu có `message`, trích xuất 4 lượt trao đổi gần nhất trong bảng `Chat_History` từ Cloudflare D1 để cung cấp ngữ cảnh hội thoại; xây dựng System Prompt đóng vai SBE Mentor cố vấn sư phạm trả lời câu hỏi lý thuyết, giải thích hoặc hướng dẫn thực hành; lưu tin nhắn người dùng và câu trả lời của Mentor vào `Chat_History`.
+  2. **Nâng cấp Giao diện Người dùng ([`public/index.html`](./public/index.html)):**
+     - Thêm nút bấm `<button id="btnSendChat">Gửi</button>` cạnh ô input `#chatInput` để người dùng có thể gửi bằng cả phím `Enter` lẫn click chuột.
+     - Cập nhật placeholder rõ ràng: `"Nhắn tin tự do với Mentor (nhấn Enter để gửi)..."`.
+  3. **Lập trình Logic Client ([`src/index.ts`](./src/index.ts)):**
+     - Bổ sung hàm `sendChatMessage()`: quản lý trạng thái loading, khóa input tạm thời chống spam, gửi `POST /api/chat` với `{ currentWeek, message, model }`.
+     - Tích hợp hàm `formatMentorMarkdown()` và `escapeHtml()` để định dạng phản hồi phong phú (in đậm, xuống dòng, code blocks).
+     - Bắt sự kiện `keydown` (phím `Enter` không kèm `Shift`) trên `#chatInput` và sự kiện `click` trên nút `#btnSendChat`.
+- **Kết quả Kiểm thử:**
+  - `npm run build` hoàn thành với exit code 0.
+  - `npx wrangler deploy --dry-run` hoàn thành 100% không có lỗi.
+
+---
+
 ## 3. Tổng hợp Thay đổi File (Matrix File Changes)
 
-| Tên File                                                 | Thao tác              | Mô tả thay đổi                                                                   |
-| :------------------------------------------------------- | :-------------------- | :------------------------------------------------------------------------------- |
-| [`wrangler.jsonc`](./wrangler.jsonc)                     | **Chỉnh sửa**         | Thêm `"placement": { "region": "gcp:us-central1" }` ép Worker chạy tại Mỹ.       |
-| [`functions/api/chat.ts`](./functions/api/chat.ts)       | **Chỉnh sửa**         | Hỗ trợ `GEMINI_BASE_URL`, bắt lỗi địa lý và log Cloudflare colo.                 |
-| [`functions/api/analyze.ts`](./functions/api/analyze.ts) | **Chỉnh sửa**         | Hỗ trợ `GEMINI_BASE_URL`, bắt lỗi địa lý và log Cloudflare colo.                 |
-| [`functions/api/models.ts`](./functions/api/models.ts)   | **Chỉnh sửa**         | Hỗ trợ `GEMINI_BASE_URL`, cảnh báo nhẹ nhàng khi danh sách model bị chặn địa lý. |
-| [`src/index.ts`](./src/index.ts)                         | **Chỉnh sửa**         | Xử lý `isLocationBlocked`, hiển thị hộp thoại hướng dẫn chi tiết trên giao diện. |
-| [`public/js/index.js`](./public/js/index.js)             | **Biên dịch tự động** | JavaScript phân phối trình duyệt sau khi chạy `npm run build`.                   |
-| [`ARCHITECTURE.md`](./ARCHITECTURE.md)                   | **Cập nhật**          | Ghi nhận cơ chế Geo-restriction & Placement hints trong tài liệu kiến trúc.      |
-| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Cập nhật**          | Ghi nhận Giai đoạn 12 và cập nhật ma trận file thay đổi.                         |
-| [`worker.ts`](./worker.ts)                               | **Chỉnh sửa**         | Cloudflare Worker ES Module entrypoint: bổ sung routing `/api/models` và CORS.   |
-| [`public/index.html`](./public/index.html)               | **Chỉnh sửa**         | Thêm dropdown `#modelSelector` cho phép người dùng chọn mô hình Gemini.          |
-| [`public/sw.js`](./public/sw.js)                         | **Chỉnh sửa**         | Service Worker v3 an toàn, bypass `/api/*` và fix lỗi `clone()` stream.          |
+| Tên File                                                 | Thao tác              | Mô tả thay đổi                                                                      |
+| :------------------------------------------------------- | :-------------------- | :---------------------------------------------------------------------------------- |
+| [`functions/api/chat.ts`](./functions/api/chat.ts)       | **Chỉnh sửa**         | Hỗ trợ Dual Mode: phân tích kịch bản Gherkin & đàm thoại tự do có trí nhớ ngữ cảnh. |
+| [`src/index.ts`](./src/index.ts)                         | **Chỉnh sửa**         | Lắng nghe `Enter` và click nút gửi trên `chatInput`, gọi API trò chuyện tự do.      |
+| [`public/index.html`](./public/index.html)               | **Chỉnh sửa**         | Bổ sung nút `#btnSendChat` và cập nhật placeholder cho `#chatInput`.                |
+| [`public/js/index.js`](./public/js/index.js)             | **Biên dịch tự động** | JavaScript phân phối trình duyệt sau khi chạy `npm run build`.                      |
+| [`wrangler.jsonc`](./wrangler.jsonc)                     | **Chỉnh sửa**         | Thêm `"placement": { "region": "gcp:us-central1" }` ép Worker chạy tại Mỹ.          |
+| [`functions/api/analyze.ts`](./functions/api/analyze.ts) | **Chỉnh sửa**         | Hỗ trợ `GEMINI_BASE_URL`, bắt lỗi địa lý và log Cloudflare colo.                    |
+| [`functions/api/models.ts`](./functions/api/models.ts)   | **Chỉnh sửa**         | Hỗ trợ `GEMINI_BASE_URL`, cảnh báo nhẹ nhàng khi danh sách model bị chặn địa lý.    |
+| [`ARCHITECTURE.md`](./ARCHITECTURE.md)                   | **Cập nhật**          | Ghi nhận cơ chế Dual Mode của chat.ts và tài liệu kiến trúc.                        |
+| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Cập nhật**          | Ghi nhận Giai đoạn 13 và cập nhật ma trận file thay đổi.                            |
+| [`worker.ts`](./worker.ts)                               | **Chỉnh sửa**         | Cloudflare Worker ES Module entrypoint: bổ sung routing `/api/models` và CORS.      |
+| [`public/sw.js`](./public/sw.js)                         | **Chỉnh sửa**         | Service Worker v3 an toàn, bypass `/api/*` và fix lỗi `clone()` stream.             |
 
 ---
 

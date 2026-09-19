@@ -5,6 +5,8 @@ const gherkinEditor = document.getElementById("gherkinEditor");
 const chatHistory = document.getElementById("chatHistory");
 const weekSelector = document.getElementById("weekSelector");
 const modelSelector = document.getElementById("modelSelector");
+const chatInput = document.getElementById("chatInput");
+const btnSendChat = document.getElementById("btnSendChat");
 // Tự động khôi phục bản nháp từ LocalStorage khi mở lại web
 const savedDraft = localStorage.getItem("sbe_draft");
 if (savedDraft) {
@@ -62,6 +64,111 @@ function appendMessage(sender, htmlContent, isSystem = false) {
     msgElement.innerHTML = `<strong>${sender}:</strong> <div style="margin-top: 5px;">${htmlContent}</div>`;
     chatHistory.appendChild(msgElement);
     chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+}
+function formatMentorMarkdown(raw) {
+    if (!raw)
+        return "";
+    // Xử lý code block ```...```
+    let html = raw.replace(/```(?:[a-z]*)\n([\s\S]*?)```/gi, (_match, code) => {
+        return `<pre style="background: #e9ecef; padding: 10px; border-radius: 4px; overflow-x: auto; color: #1e1e1e; margin: 8px 0;"><code>${escapeHtml(code.trim())}</code></pre>`;
+    });
+    // Xử lý inline code `...`
+    html = html.replace(/`([^`]+)`/g, (_match, code) => {
+        return `<code style="background: #e9ecef; padding: 2px 5px; border-radius: 3px; color: #d63384;">${escapeHtml(code)}</code>`;
+    });
+    // Xử lý in đậm **...**
+    html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    // Xử lý xuống dòng
+    html = html
+        .replace(/\n\n+/g, "</p><p style='margin-top: 6px;'>")
+        .replace(/\n/g, "<br/>");
+    return `<p style="margin: 0; line-height: 1.5;">${html}</p>`;
+}
+async function sendChatMessage() {
+    if (!chatInput)
+        return;
+    const text = chatInput.value.trim();
+    if (!text)
+        return;
+    chatInput.value = "";
+    chatInput.disabled = true;
+    if (btnSendChat) {
+        btnSendChat.disabled = true;
+        btnSendChat.textContent = "...";
+    }
+    const currentWeek = parseInt(weekSelector.value, 10) || 1;
+    const selectedModel = modelSelector?.value ||
+        localStorage.getItem("sbe_selected_model") ||
+        "gemini-3.6-flash";
+    appendMessage("Bạn", `<p style="margin: 0;">${escapeHtml(text)}</p>`);
+    try {
+        const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                currentWeek,
+                message: text,
+                model: selectedModel,
+            }),
+        });
+        if (!response.ok) {
+            if (response.status === 503)
+                throw new Error("OFFLINE");
+            const errJson = await response.json().catch(() => ({}));
+            if (errJson.isLocationBlocked ||
+                (errJson.error &&
+                    (errJson.error.includes("location") ||
+                        errJson.error.includes("Vị trí máy chủ")))) {
+                const locationWarningHtml = `
+          <div style="background: #fff3cd; color: #856404; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px;">
+            <strong>⚠ Hạn chế Địa lý từ Google Gemini API:</strong>
+            <p style="margin: 6px 0;">${errJson.error}</p>
+            <p style="margin: 4px 0; font-size: 13px; color: #664d03;">${errJson.detail || "Cloudflare Edge Node đang ở vùng bị Google chặn. Dự án đã kích hoạt cấu hình placement trong wrangler.jsonc."}</p>
+          </div>
+        `;
+                appendMessage("Hệ thống", locationWarningHtml, true);
+                return;
+            }
+            throw new Error(errJson.error || `Lỗi máy chủ (${response.status})`);
+        }
+        const data = await response.json();
+        const replyHtml = formatMentorMarkdown(data.message || "Đã nhận được tin nhắn.");
+        appendMessage("SBE Mentor", replyHtml);
+    }
+    catch (error) {
+        if (error.message === "OFFLINE") {
+            appendMessage("Hệ thống", "Bạn đang mất kết nối mạng. Tin nhắn chưa được gửi.", true);
+        }
+        else {
+            appendMessage("Hệ thống", "Lỗi trò chuyện: " + error.message, true);
+        }
+    }
+    finally {
+        chatInput.disabled = false;
+        if (btnSendChat) {
+            btnSendChat.disabled = false;
+            btnSendChat.textContent = "Gửi";
+        }
+        chatInput.focus();
+    }
+}
+if (chatInput) {
+    chatInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            sendChatMessage();
+        }
+    });
+}
+if (btnSendChat) {
+    btnSendChat.addEventListener("click", () => {
+        sendChatMessage();
+    });
 }
 btnSend.addEventListener("click", async () => {
     const text = gherkinEditor.value.trim();

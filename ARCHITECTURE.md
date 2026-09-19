@@ -69,14 +69,11 @@ sbe-assistant-pwa/
 
 ### Vai trò chi tiết của các file trọng yếu
 
-1. **`functions/api/chat.ts` (Backend API Gateway & Agent Controller):**
-   - **Xử lý Request:** Nhận POST payload chứa `{ currentWeek, scenarioText }`.
-   - **System Prompt Engineering:** Xây dựng prompt chuyên môn hóa theo từng tuần học, định nghĩa cấu trúc JSON schema bắt buộc 5 trường (`message`, `analysis.learned_concepts`, `mistakes`, `best_scenario`, `recommendations`).
-   - **Gọi Gemini REST API:** Gửi payload sang endpoint `gemini-3.6-flash:generateContent` bằng fetch native với `response_mime_type: "application/json"`.
-   - **Ghi dữ liệu kép vào Cloudflare D1 (`env.DB`):**
-     - Lưu lượt hội thoại ngắn hạn vào bảng `Chat_History`.
-     - Lưu khối kiến thức dài hạn đã chuẩn hóa vào bảng `Memory_Blocks`.
-   - **Xử lý lỗi:** Bắt lỗi kết nối, trả mã trạng thái HTTP chuẩn kèm thông điệp lỗi JSON.
+1. **`functions/api/chat.ts` (Backend API Gateway & Agent Controller - Dual Mode):**
+   - **Xử lý Request (Chế độ Kép):**
+     - **Chế độ 1 - Đánh giá Kịch bản Gherkin:** Nhận `{ currentWeek, scenarioText, model }`. Ép kiểu JSON 5 khối (`message`, `analysis.learned_concepts`, `mistakes`, `best_scenario`, `recommendations`). Lưu đồng thời vào `Chat_History` và `Memory_Blocks` (D1).
+     - **Chế độ 2 - Trò chuyện Tự do (Free-form Mentoring):** Nhận `{ currentWeek, message, model }`. Đọc lịch sử 4 lượt trao đổi gần nhất từ D1 làm giàu ngữ cảnh. Gọi Gemini API trả lời với vai trò SBE Mentor cố vấn sư phạm. Lưu tin nhắn người dùng và câu trả lời vào `Chat_History`.
+   - **Tương thích & Dự phòng:** Hỗ trợ biến môi trường `GEMINI_BASE_URL` (AI Gateway) và cơ chế bắt lỗi hạn chế địa lý `isLocationBlocked`.
 
 2. **`functions/api/analyze.ts` (Edge RAG Analyzer & Progress Synthesizer):**
    - **Xử lý Request:** Nhận POST payload chứa `{ currentWeek, model }`.
