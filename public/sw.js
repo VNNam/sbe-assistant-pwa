@@ -1,4 +1,4 @@
-const CACHE_NAME = "sbe-assistant-v2";
+const CACHE_NAME = "sbe-assistant-v3";
 
 const ASSETS_TO_CACHE = ["/", "/index.html", "/js/index.js", "/manifest.json"];
 
@@ -13,7 +13,7 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  // Xóa bỏ các cache cũ khi có phiên bản Service Worker mới
+  // Xóa bỏ tất cả các cache cũ
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
@@ -29,20 +29,13 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // 1. Đối với API: Network-first, nếu lỗi rớt mạng thì trả về 503 fallback
+  // 1. TUYỆT ĐỐI KHÔNG can thiệp vào các API routes (/api/*).
+  // Để trình duyệt trực tiếp gửi POST request tới server, không lo bị biến đổi method hay lỗi body.
   if (url.pathname.startsWith("/api/")) {
-    event.respondWith(
-      fetch(event.request).catch(() => {
-        return new Response(JSON.stringify({ error: "Ngoại tuyến" }), {
-          status: 503,
-          headers: { "Content-Type": "application/json" },
-        });
-      }),
-    );
     return;
   }
 
-  // 2. Chỉ cache các request GET đối với static assets
+  // 2. Chỉ can thiệp vào các request GET đối với static assets
   if (event.request.method !== "GET") {
     return;
   }
@@ -63,7 +56,6 @@ self.addEventListener("fetch", (event) => {
             (networkResponse.type === "basic" ||
               networkResponse.type === "default")
           ) {
-            // Clone ngay lập tức một cách đồng bộ trước khi body stream bị browser consume
             const responseToCache = networkResponse.clone();
             caches
               .open(CACHE_NAME)

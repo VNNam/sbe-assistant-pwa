@@ -169,6 +169,25 @@ Tại thời điểm bắt đầu phiên làm việc:
 
 ---
 
+### Giai đoạn 9: Khắc phục triệt để lỗi `Method GET not allowed, please use POST` & Cấu hình API Key
+
+- **Triệu chứng lỗi:**
+  1. Khi bấm "Gửi Kịch bản", màn hình hiện lỗi: `{"error":"Method GET not allowed, please use POST."}`.
+  2. Khi gọi API trực tiếp thành công, server trả về: `{"error":"Chưa cấu hình API Key"}`.
+- **Nguyên nhân cốt lõi (Root Cause):**
+  1. Trình duyệt tự động chuyển đổi phương thức từ `POST` sang `GET` do:
+     - Truy cập qua giao thức `http://`: Cloudflare tự động chuyển hướng sang `https://` bằng mã HTTP 301/302. Theo chuẩn HTTP, các trình duyệt sẽ tự động drop body và đổi method thành `GET`.
+     - Service Worker cũ can thiệp vào `/api/*` bằng `fetch(event.request)`.
+  2. Biến môi trường bí mật `GEMINI_API_KEY` chưa được thêm vào phần **Variables and Secrets** của Cloudflare Worker trên Dashboard sau khi chuyển đổi dự án sang Worker.
+- **Giải pháp thực hiện:**
+  1. Cập nhật [`public/sw.js`](./public/sw.js) lên version `sbe-assistant-v3`: Bỏ qua hoàn toàn (bypass) các route `/api/*`, để trình duyệt trực tiếp gửi request POST tới Edge Server.
+  2. Cập nhật [`public/index.html`](./public/index.html): Bổ sung script tự động reload sang `https://` ở `<head>` nếu người dùng vô tình truy cập qua `http://`.
+  3. Cập nhật [`worker.ts`](./worker.ts): Nếu nhận request qua `http://`, chuyển hướng sang `https://` bằng mã **HTTP 308** (chuẩn HTTP bảo lưu phương thức POST và request body).
+  4. Cập nhật [`src/index.ts`](./src/index.ts): Đọc thông điệp lỗi chi tiết `errJson.error` từ server để hiển thị rõ ràng trên khung chat thay vì chỉ in mã HTTP status.
+  5. Hướng dẫn người dùng cấu hình `GEMINI_API_KEY` vào phần Variables and Secrets của Cloudflare Worker.
+
+---
+
 ## 3. Tổng hợp Thay đổi File (Matrix File Changes)
 
 | Tên File                                                 | Thao tác               | Mô tả thay đổi                                                                  |

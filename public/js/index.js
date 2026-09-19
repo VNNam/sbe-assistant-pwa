@@ -44,7 +44,8 @@ btnSend.addEventListener("click", async () => {
         if (!response.ok) {
             if (response.status === 503)
                 throw new Error("OFFLINE");
-            throw new Error(`Lỗi máy chủ (${response.status})`);
+            const errJson = await response.json().catch(() => ({}));
+            throw new Error(errJson.error || `Lỗi máy chủ (${response.status})`);
         }
         const data = await response.json();
         // Render thông báo chính

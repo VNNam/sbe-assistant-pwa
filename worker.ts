@@ -32,6 +32,16 @@ export default {
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
     const method = request.method.toUpperCase();
 
+    // 0. Đảm bảo chuyển hướng sang HTTPS trên production bằng mã 308 (bảo lưu POST method & body)
+    if (
+      url.protocol === "http:" &&
+      url.hostname !== "localhost" &&
+      url.hostname !== "127.0.0.1"
+    ) {
+      url.protocol = "https:";
+      return Response.redirect(url.toString(), 308);
+    }
+
     // 1. Xử lý CORS Preflight (OPTIONS) cho mọi route
     if (method === "OPTIONS") {
       return new Response(null, {

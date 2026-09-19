@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SBE Assistant</title>
     <link rel="manifest" href="manifest.json" />
+    <script>
+      if (
+        location.protocol === "http:" &&
+        location.hostname !== "localhost" &&
+        location.hostname !== "127.0.0.1"
+      ) {
+        location.replace(location.href.replace(/^http:/, "https:"));
+      }
+    </script>
     <style>
       body,
       html {
