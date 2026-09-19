@@ -20,7 +20,11 @@ gherkinEditor.addEventListener("input", () => {
 async function loadAvailableModels() {
     if (!modelSelector)
         return;
-    const savedModel = localStorage.getItem("sbe_selected_model") || "gemini-3.6-flash";
+    let savedModel = localStorage.getItem("sbe_selected_model");
+    if (!savedModel || savedModel === "gemini-3.6-flash" || savedModel === "gemini-2.5-flash") {
+        savedModel = "gemini-2.0-flash";
+        localStorage.setItem("sbe_selected_model", "gemini-2.0-flash");
+    }
     try {
         const res = await fetch("/api/models");
         if (!res.ok)
@@ -104,7 +108,7 @@ async function sendChatMessage() {
     const currentWeek = parseInt(weekSelector.value, 10) || 1;
     const selectedModel = modelSelector?.value ||
         localStorage.getItem("sbe_selected_model") ||
-        "gemini-3.6-flash";
+        "gemini-2.0-flash";
     appendMessage("Bạn", `<p style="margin: 0;">${escapeHtml(text)}</p>`);
     try {
         const response = await fetch("/api/chat", {
@@ -182,7 +186,7 @@ btnSend.addEventListener("click", async () => {
     appendMessage("Bạn", `<pre style="background: #f4f4f4; padding: 8px; border-radius: 4px;">${text}</pre>`);
     const selectedModel = modelSelector?.value ||
         localStorage.getItem("sbe_selected_model") ||
-        "gemini-3.6-flash";
+        "gemini-2.0-flash";
     const payload = {
         currentWeek: currentWeek,
         scenarioText: text,
@@ -258,7 +262,7 @@ btnRecall.addEventListener("click", async () => {
     const currentWeek = parseInt(weekSelector.value, 10) || 1;
     const selectedModel = modelSelector?.value ||
         localStorage.getItem("sbe_selected_model") ||
-        "gemini-3.6-flash";
+        "gemini-2.0-flash";
     btnRecall.disabled = true;
     btnRecall.textContent = "Đang tổng kết...";
     appendMessage("Hệ thống", `Đang trích xuất dữ liệu từ <em>Memory_Blocks</em> và tiến hành phân tích tiến trình học tập cho Tuần ${currentWeek} (Mô hình: ${selectedModel})...`, false);

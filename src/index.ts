@@ -33,8 +33,15 @@ gherkinEditor.addEventListener("input", () => {
 // Tải danh sách model Gemini khả dụng từ backend
 async function loadAvailableModels() {
   if (!modelSelector) return;
-  const savedModel =
-    localStorage.getItem("sbe_selected_model") || "gemini-3.6-flash";
+  let savedModel = localStorage.getItem("sbe_selected_model");
+  if (
+    !savedModel ||
+    savedModel === "gemini-3.6-flash" ||
+    savedModel === "gemini-2.5-flash"
+  ) {
+    savedModel = "gemini-2.0-flash";
+    localStorage.setItem("sbe_selected_model", "gemini-2.0-flash");
+  }
 
   try {
     const res = await fetch("/api/models");
@@ -129,7 +136,7 @@ async function sendChatMessage() {
   const selectedModel =
     modelSelector?.value ||
     localStorage.getItem("sbe_selected_model") ||
-    "gemini-3.6-flash";
+    "gemini-2.0-flash";
 
   appendMessage("Bạn", `<p style="margin: 0;">${escapeHtml(text)}</p>`);
 
@@ -225,7 +232,7 @@ btnSend.addEventListener("click", async () => {
   const selectedModel =
     modelSelector?.value ||
     localStorage.getItem("sbe_selected_model") ||
-    "gemini-3.6-flash";
+    "gemini-2.0-flash";
 
   const payload: ScenarioPayload = {
     currentWeek: currentWeek,
@@ -316,7 +323,7 @@ btnRecall.addEventListener("click", async () => {
   const selectedModel =
     modelSelector?.value ||
     localStorage.getItem("sbe_selected_model") ||
-    "gemini-3.6-flash";
+    "gemini-2.0-flash";
 
   btnRecall.disabled = true;
   btnRecall.textContent = "Đang tổng kết...";

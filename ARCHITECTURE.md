@@ -73,19 +73,19 @@ sbe-assistant-pwa/
    - **Xử lý Request (Chế độ Kép):**
      - **Chế độ 1 - Đánh giá Kịch bản Gherkin:** Nhận `{ currentWeek, scenarioText, model }`. Ép kiểu JSON 5 khối (`message`, `analysis.learned_concepts`, `mistakes`, `best_scenario`, `recommendations`). Lưu đồng thời vào `Chat_History` và `Memory_Blocks` (D1).
      - **Chế độ 2 - Trò chuyện Tự do (Free-form Mentoring):** Nhận `{ currentWeek, message, model }`. Đọc lịch sử 4 lượt trao đổi gần nhất từ D1 làm giàu ngữ cảnh. Gọi Gemini API trả lời với vai trò SBE Mentor cố vấn sư phạm. Lưu tin nhắn người dùng và câu trả lời vào `Chat_History`.
-   - **Tương thích & Dự phòng:** Hỗ trợ biến môi trường `GEMINI_BASE_URL` (AI Gateway) và cơ chế bắt lỗi hạn chế địa lý `isLocationBlocked`.
+   - **Tương thích & Dự phòng 503:** Mặc định sử dụng model ổn định `gemini-2.0-flash`. Nếu model người dùng chọn bị lỗi HTTP 503 (High Demand từ Google), backend tự động thử lại ngay lập tức với `gemini-2.0-flash`. Hỗ trợ biến môi trường `GEMINI_BASE_URL` (AI Gateway) và cơ chế bắt lỗi hạn chế địa lý `isLocationBlocked`.
 
 2. **`functions/api/analyze.ts` (Edge RAG Analyzer & Progress Synthesizer):**
    - **Xử lý Request:** Nhận POST payload chứa `{ currentWeek, model }`.
    - **Truy vấn Cloudflare D1:** Đọc toàn bộ các bản ghi `Memory_Blocks` từ tuần 1 đến tuần hiện tại.
    - **Xử lý Empty State:** Nếu chưa có kịch bản nào được nộp, trả về thông báo hướng dẫn gửi kịch bản.
-   - **Tổng hợp Gemini RAG:** Gửi toàn bộ dữ liệu lịch sử cho mô hình đã chọn (mặc định `gemini-3.6-flash`) phân tích tổng quan, trích xuất các khái niệm đã làm chủ, lỗi sai lặp lại, kế hoạch hành động tiếp theo và chấm điểm mức độ sẵn sàng (`readiness_score: 0-100`).
+   - **Tổng hợp Gemini RAG:** Gửi toàn bộ dữ liệu lịch sử cho mô hình đã chọn (mặc định `gemini-2.0-flash`) phân tích tổng quan, trích xuất các khái niệm đã làm chủ, lỗi sai lặp lại, kế hoạch hành động tiếp theo và chấm điểm mức độ sẵn sàng (`readiness_score: 0-100`). Tự động fallback sang `gemini-2.0-flash` nếu model gặp lỗi 503.
 
 3. **`functions/api/models.ts` (Edge Dynamic Gemini Models Discovery Provider):**
    - **Xử lý Request:** Nhận GET request tại `/api/models`.
    - **Truy vấn Google Generative Language API:** Gọi trực tiếp `GET https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}` để lấy danh sách models mới nhất từ Google.
-   - **Bộ lọc & Sắp xếp thông minh:** Lọc các model thuộc họ `gemini` hỗ trợ `generateContent` (loại bỏ vision/embedding riêng biệt), ưu tiên đưa `gemini-3.6-flash` lên đầu làm model khuyến nghị mặc định.
-   - **Fallback Resiliency:** Nếu không có API Key hoặc mạng gặp sự cố, tự động trả về danh sách fallback an toàn (`gemini-3.6-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`) với HTTP 200 kèm cảnh báo mềm.
+   - **Bộ lọc & Sắp xếp thông minh:** Lọc các model thuộc họ `gemini` hỗ trợ `generateContent` (loại bỏ vision/embedding riêng biệt), ưu tiên đưa `gemini-2.0-flash` lên đầu làm model khuyến nghị ổn định, đánh dấu nhãn `(Tải cao)` cho `gemini-3.6-flash`.
+   - **Fallback Resiliency:** Nếu không có API Key hoặc mạng gặp sự cố, tự động trả về danh sách fallback an toàn (`gemini-2.0-flash`, `gemini-2.5-flash`, `gemini-1.5-flash`, `gemini-3.6-flash`) với HTTP 200 kèm cảnh báo mềm.
 
 4. **`worker.ts` (Cloudflare Worker Core Gateway & Asset Router):**
    - Đóng vai trò ES Module entrypoint cho Cloudflare Worker.
@@ -94,31 +94,37 @@ sbe-assistant-pwa/
    - Bổ sung header CORS chuẩn (`Access-Control-Allow-Origin: *`, `Allow-Methods`, `Allow-Headers`).
    - Phục vụ static assets từ `env.ASSETS` cho các tài nguyên trình duyệt.
 
-5. **`src/index.ts` (Frontend Controller & Presentation Logic):**
-   - **Dynamic Model Selection:** Tự động gọi `/api/models` nạp vào thẻ dropdown `#modelSelector`, ghi nhớ model đã chọn vào `localStorage.getItem("sbe_selected_model")`, truyền model vào các request `/api/chat` và `/api/analyze`.
+5. **`public/index.html` (Split-Screen Workspace & Docking Layout):**
+   - Thiết kế 100vh không tràn màn hình: Khung lịch sử chat `.chat-history` và Khung soạn thảo kịch bản `.editor-textarea` sở hữu thanh cuộn độc lập (independent custom scrollbar).
+   - Thiết kế Dock cố định ở chân trang:
+     - **Chat Dock (Trái):** Nhóm bộ chọn tuần `#weekSelector`, bộ chọn AI model `#modelSelector`, ô nhập tin nhắn `#chatInput`, nút gửi `#btnSendChat` và nút tổng kết `#btnRecall`.
+     - **Editor Dock (Phải):** Nhóm thông báo trạng thái tự lưu nháp và nút `#btnSendScenario`.
+
+6. **`src/index.ts` (Frontend Controller & Presentation Logic):**
+   - **Dynamic Model Selection:** Tự động gọi `/api/models` nạp vào thẻ dropdown `#modelSelector`, ghi nhớ model đã chọn vào `localStorage.getItem("sbe_selected_model")`. Tự động di chuyển các giá trị model lỗi/cũ trong `localStorage` sang `gemini-2.0-flash`.
    - **Khôi phục & Lưu nháp:** Tự động nạp bản nháp từ `localStorage.getItem("sbe_draft")` khi khởi động; lắng nghe `input` trên editor để lưu tức thời.
    - **Resizer Controller:** Lắng nghe sự kiện chuột (`mousedown`, `mousemove`, `mouseup`) trên thanh chia đôi `#dragMe`, giới hạn tỷ lệ co giãn từ 20% đến 80%, tạm thời vô hiệu hóa `pointer-events` trên các khung để tránh giật lag.
    - **Dispatcher & Renderer:** Gửi request đến `/api/chat` và `/api/analyze`, quản lý loading states trên các nút tương ứng.
    - **Recall Dashboard:** Render thẻ tóm tắt tiến trình học tập trực quan gồm điểm sẵn sàng, danh sách khái niệm nắm vững, lỗi cần khắc phục và kế hoạch hành động.
    - **PWA Lifecycle:** Đăng ký Service Worker `/sw.js` vào browser khi tải trang.
 
-6. **`public/index.html` (Application Shell & UI Layout):**
+7. **`public/index.html` (Application Shell & UI Layout):**
    - Sử dụng CSS Grid 3 cột (`60% 5px 1fr`) tạo bố cục 2 vùng làm việc song song: bên trái là khung trao đổi với AI Mentor kèm bộ lọc tuần (`weekSelector`), bộ chọn model AI (`modelSelector`) và nút "Tổng kết (Recall)"; bên phải là workspace viết Gherkin Editor.
    - Tích hợp script auto-redirect HTTP sang HTTPS ngay tại `<head>` để bảo toàn POST payloads.
    - Liên kết Web App Manifest phục vụ khả năng Add to Home Screen.
 
-7. **`public/sw.js` (Offline Cache & Network Proxy - v3):**
+8. **`public/sw.js` (Offline Cache & Network Proxy - v3):**
    - Định vị trực tiếp tại Web Root (`public/sw.js`) để đảm bảo scope đăng ký `/` toàn vẹn.
    - Chiến lược **Cache-First** đối với các static assets cơ bản (`/`, `/index.html`, `/js/index.js`, `/manifest.json`).
    - Sửa lỗi body consumption: chỉ clone `Response` an toàn khi request là GET thành công và hoàn toàn bypass đối với route `/api/*`.
 
-8. **`schema.sql` (Edge Database Data Definition Language):**
+9. **`schema.sql` (Edge Database Data Definition Language):**
    - `Chat_History`: Lưu trữ hội thoại chi tiết gồm `week_id`, `role` (`user` | `model`), `content`, `created_at`.
    - `Memory_Blocks`: Lưu trữ thực thể RAG gồm `week_id`, `summary_json` (chứa các mảng concepts, mistakes, best scenario, recommendations), `created_at`.
 
-9. **`wrangler.jsonc` (Cloudflare Infrastructure as Code):**
-   - Cấu hình `"main": "./worker.ts"`, Assets directory trỏ vào `./public`.
-   - Thiết lập database binding `DB` kết nối trực tiếp với Cloudflare D1 (`sbe-memory-db`, id: `87e77f75-64f7-49c4-a3e1-e823c56a23f0`).
+10. **`wrangler.jsonc` (Cloudflare Infrastructure as Code):**
+    - Cấu hình `"main": "./worker.ts"`, Assets directory trỏ vào `./public`.
+    - Thiết lập database binding `DB` kết nối trực tiếp với Cloudflare D1 (`sbe-memory-db`, id: `87e77f75-64f7-49c4-a3e1-e823c56a23f0`).
 
 ---
 

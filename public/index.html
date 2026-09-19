@@ -15,18 +15,27 @@
       }
     </script>
     <style>
+      * {
+        box-sizing: border-box;
+      }
       body,
       html {
         margin: 0;
         padding: 0;
         height: 100%;
-        font-family: sans-serif;
+        width: 100%;
+        overflow: hidden;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+          Arial, sans-serif;
       }
       .app-container {
         display: grid;
         /* Cấu trúc 3 cột: Nửa trái (60%) - Thanh kéo (5px) - Nửa phải (Phần còn lại) */
         grid-template-columns: 60% 5px 1fr;
         height: 100vh;
+        width: 100vw;
+        overflow: hidden;
       }
 
       /* Giao diện thanh kéo thả */
@@ -41,47 +50,208 @@
       .resizer:active {
         background-color: #007acc; /* Đổi màu xanh khi di chuột hoặc đang kéo */
       }
+
+      /* Nửa trái: AI Mentor Section */
       .ai-chat-section {
-        background-color: #f4f4f9;
-        padding: 20px;
+        background-color: #f8f9fa;
         display: flex;
         flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
         border-right: 1px solid #ddd;
       }
+
+      .chat-history {
+        flex: 1 1 0;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 20px;
+        scroll-behavior: smooth;
+      }
+
+      /* Thanh cuộn cho Chat History */
+      .chat-history::-webkit-scrollbar {
+        width: 8px;
+      }
+      .chat-history::-webkit-scrollbar-track {
+        background: #f1f1f5;
+        border-radius: 4px;
+      }
+      .chat-history::-webkit-scrollbar-thumb {
+        background: #c5c5d2;
+        border-radius: 4px;
+      }
+      .chat-history::-webkit-scrollbar-thumb:hover {
+        background: #a4a4b5;
+      }
+
+      /* Cụm điều khiển Dock ở cuối màn hình Chat */
+      .chat-dock {
+        flex-shrink: 0;
+        background: #ffffff;
+        border-top: 1px solid #e2e8f0;
+        padding: 12px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
+      }
+
+      .selector-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .selector-row select {
+        padding: 9px 12px;
+        border-radius: 6px;
+        border: 1px solid #ccc;
+        flex: 1;
+        min-width: 160px;
+        font-size: 13.5px;
+        background-color: #fafafa;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+
+      .selector-row select:focus {
+        border-color: #007acc;
+      }
+
+      .input-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .input-row input {
+        flex-grow: 1;
+        padding: 10px 14px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font-size: 14px;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+
+      .input-row input:focus {
+        border-color: #007acc;
+      }
+
+      /* Nửa phải: Thực hành Gherkin Section */
       .gherkin-editor-section {
         background-color: #1e1e1e;
         color: #d4d4d4;
-        padding: 20px;
         display: flex;
         flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
       }
-      .chat-history {
-        flex-grow: 1;
-        overflow-y: auto;
-        margin-bottom: 10px;
+
+      .editor-container {
+        flex: 1 1 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 16px 20px 0 20px;
       }
+
       .editor-textarea {
-        flex-grow: 1;
+        flex: 1 1 0;
+        min-height: 0;
+        width: 100%;
         background: #1e1e1e;
         color: #d4d4d4;
         border: 1px solid #333;
-        padding: 10px;
-        font-family: monospace;
+        border-radius: 6px;
+        padding: 14px;
+        font-family: "Consolas", "Monaco", "Courier New", monospace;
+        font-size: 14px;
+        line-height: 1.5;
         resize: none;
+        overflow-y: auto;
+        outline: none;
+        transition: border-color 0.2s;
       }
-      .toolbar {
-        padding-top: 10px;
+
+      .editor-textarea:focus {
+        border-color: #007acc;
+      }
+
+      /* Thanh cuộn cho Gherkin Editor */
+      .editor-textarea::-webkit-scrollbar {
+        width: 8px;
+      }
+      .editor-textarea::-webkit-scrollbar-track {
+        background: #252526;
+      }
+      .editor-textarea::-webkit-scrollbar-thumb {
+        background: #424242;
+        border-radius: 4px;
+      }
+      .editor-textarea::-webkit-scrollbar-thumb:hover {
+        background: #555555;
+      }
+
+      /* Cụm điều khiển Dock ở cuối màn hình Thực hành */
+      .editor-dock {
+        flex-shrink: 0;
+        background: #252526;
+        border-top: 1px solid #333;
+        padding: 12px 20px;
         display: flex;
+        justify-content: space-between;
+        align-items: center;
         gap: 10px;
-        justify-content: flex-end;
       }
+
+      .editor-status {
+        font-size: 13px;
+        color: #888;
+      }
+
       button {
-        padding: 8px 16px;
+        padding: 9px 18px;
         cursor: pointer;
         background: #007acc;
         color: white;
         border: none;
-        border-radius: 4px;
+        border-radius: 6px;
+        font-size: 13.5px;
+        font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        transition:
+          background-color 0.2s,
+          opacity 0.2s;
+        white-space: nowrap;
+      }
+
+      button:hover:not(:disabled) {
+        background: #0062a3;
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      #btnRecall {
+        background: #4a5568;
+      }
+      #btnRecall:hover:not(:disabled) {
+        background: #374151;
+      }
+
+      #btnSendScenario {
+        background: #28a745;
+      }
+      #btnSendScenario:hover:not(:disabled) {
+        background: #218838;
       }
     </style>
   </head>
@@ -89,66 +259,79 @@
     <div class="app-container" id="appContainer">
       <!-- Nửa trái: AI Mentor Chatbox -->
       <div class="ai-chat-section">
+        <!-- Khung lịch sử chat cuộn độc lập -->
         <div class="chat-history" id="chatHistory">
           <p>
             <strong>SBE Mentor:</strong> Chào bạn, chúng ta bắt đầu Tuần 1. Hãy
             viết kịch bản Gherkin đầu tiên sang ô bên phải nhé.
           </p>
         </div>
-        <div
-          style="
-            display: flex;
-            gap: 10px;
-            padding-bottom: 10px;
-            flex-wrap: wrap;
-          "
-        >
-          <select
-            id="weekSelector"
-            style="padding: 10px; border-radius: 4px; flex: 1; min-width: 180px"
-          >
-            <option value="1">Tuần 1: Nền tảng Gherkin</option>
-            <option value="2">Tuần 2: Scenario Outlines</option>
-            <option value="3">Tuần 3: Outside-In & Edge Cases</option>
-            <option value="4">Tuần 4: Living Documentation</option>
-          </select>
-          <select
-            id="modelSelector"
-            style="padding: 10px; border-radius: 4px; flex: 1; min-width: 180px"
-            title="Lựa chọn mô hình Gemini AI"
-          >
-            <option value="gemini-3.6-flash">
-              Gemini 3.6 Flash (Đang tải...)
-            </option>
-          </select>
-        </div>
-        <div style="display: flex; gap: 10px">
-          <input
-            type="text"
-            id="chatInput"
-            style="
-              flex-grow: 1;
-              padding: 10px;
-              border: 1px solid #ccc;
-              border-radius: 4px;
-            "
-            placeholder="Nhắn tin tự do với Mentor (nhấn Enter để gửi)..."
-          />
-          <button id="btnSendChat" title="Gửi tin nhắn (Enter)">Gửi</button>
-          <button id="btnRecall">Tổng kết (Recall)</button>
+
+        <!-- Cụm điều khiển Dock cố định ở cuối màn hình chat -->
+        <div class="chat-dock">
+          <!-- Hàng 1: Bộ chọn tuần học và AI Model -->
+          <div class="selector-row">
+            <select
+              id="weekSelector"
+              title="Chọn tuần học trong lộ trình 4 tuần"
+            >
+              <option value="1">Tuần 1: Nền tảng Gherkin</option>
+              <option value="2">Tuần 2: Scenario Outlines</option>
+              <option value="3">Tuần 3: Outside-In & Edge Cases</option>
+              <option value="4">Tuần 4: Living Documentation</option>
+            </select>
+            <select id="modelSelector" title="Lựa chọn mô hình Gemini AI">
+              <option value="gemini-2.0-flash">
+                Gemini 2.0 Flash (Đang tải...)
+              </option>
+            </select>
+          </div>
+
+          <!-- Hàng 2: Ô nhập tin nhắn, nút Gửi và nút Tổng kết -->
+          <div class="input-row">
+            <input
+              type="text"
+              id="chatInput"
+              placeholder="Nhắn tin tự do với Mentor (nhấn Enter để gửi)..."
+            />
+            <button id="btnSendChat" title="Gửi tin nhắn (Enter)">Gửi</button>
+            <button
+              id="btnRecall"
+              title="Tổng kết tiến trình học tập từ Memory_Blocks"
+            >
+              Tổng kết (Recall)
+            </button>
+          </div>
         </div>
       </div>
+
       <!-- THANH KÉO THẢ NẰM Ở GIỮA -->
       <div class="resizer" id="dragMe"></div>
-      <!-- Nửa phải: Gherkin Workspace -->
+
+      <!-- Nửa phải: Thực hành Gherkin Workspace -->
       <div class="gherkin-editor-section">
-        <textarea
-          id="gherkinEditor"
-          class="editor-textarea"
-          placeholder="Feature: ...&#10;Scenario: ..."
-        ></textarea>
-        <div class="toolbar">
-          <button id="btnSendScenario">Gửi Kịch bản</button>
+        <!-- Khung soạn thảo Gherkin cuộn độc lập -->
+        <div class="editor-container">
+          <textarea
+            id="gherkinEditor"
+            class="editor-textarea"
+            placeholder="Feature: ...&#10;Scenario: ..."
+          ></textarea>
+        </div>
+
+        <!-- Cụm điều khiển Dock cố định ở cuối màn hình thực hành -->
+        <div class="editor-dock">
+          <div class="editor-status">
+            <span>Gherkin Workspace (Tự động lưu nháp)</span>
+          </div>
+          <div class="toolbar">
+            <button
+              id="btnSendScenario"
+              title="Gửi kịch bản để AI phân tích 5 khối kiến thức"
+            >
+              Gửi Kịch bản
+            </button>
+          </div>
         </div>
       </div>
     </div>

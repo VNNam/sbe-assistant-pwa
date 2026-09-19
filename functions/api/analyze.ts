@@ -4,7 +4,7 @@ export async function onRequestPost(context: any) {
   try {
     const payload = await request.json().catch(() => ({}));
     const currentWeek = parseInt(payload.currentWeek, 10) || 1;
-    const chosenModel = payload.model || "gemini-3.6-flash";
+    const chosenModel = payload.model || "gemini-2.0-flash";
 
     const apiKey = env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -90,18 +90,35 @@ Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức
     const baseUrl = (
       env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com"
     ).replace(/\/+$/, "");
-    const geminiUrl = `${baseUrl}/v1beta/models/${chosenModel}:generateContent?key=${apiKey}`;
-    const geminiResponse = await fetch(geminiUrl, {
+    let activeModel = chosenModel;
+    let geminiUrl = `${baseUrl}/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;
+    const requestPayload = {
+      contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+      generationConfig: {
+        response_mime_type: "application/json",
+        temperature: 0.2,
+      },
+    };
+
+    let geminiResponse = await fetch(geminiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
-        generationConfig: {
-          response_mime_type: "application/json",
-          temperature: 0.2,
-        },
-      }),
+      body: JSON.stringify(requestPayload),
     });
+
+    // Tự động thử lại với gemini-2.0-flash nếu model bị 503 (quá tải)
+    if (geminiResponse.status === 503 && activeModel !== "gemini-2.0-flash") {
+      console.warn(
+        `[High Demand 503 in Recall] Model ${activeModel} quá tải, thử lại với gemini-2.0-flash...`,
+      );
+      activeModel = "gemini-2.0-flash";
+      geminiUrl = `${baseUrl}/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;
+      geminiResponse = await fetch(geminiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestPayload),
+      });
+    }
 
     if (!geminiResponse.ok) {
       const errText = await geminiResponse.text();
@@ -122,6 +139,15 @@ Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức
             colo: colo,
           }),
           { status: 400, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (geminiResponse.status === 503) {
+        return new Response(
+          JSON.stringify({
+            error:
+              "Mô hình AI hiện đang quá tải trên hệ thống của Google (High Demand 503). Vui lòng thử lại sau giây lát hoặc chọn mô hình khác từ danh sách.",
+          }),
+          { status: 503, headers: { "Content-Type": "application/json" } },
         );
       }
       throw new Error(

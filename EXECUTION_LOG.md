@@ -294,21 +294,48 @@ Tại thời điểm bắt đầu phiên làm việc:
 
 ---
 
+### Giai đoạn 14: Tái cấu trúc giao diện Dock cố định, cuộn độc lập cho History/Editor và Chuyển đổi Model mặc định sang Gemini 2.0 Flash (Khắc phục lỗi 503)
+
+- **Hiện tượng & Vấn đề phát hiện:**
+  1. **Lỗi 503 High Demand:** Khi sử dụng `gemini-3.6-flash`, hệ thống của Google thường xuyên trả về lỗi:
+     `{ "error": { "code": 503, "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.", "status": "UNAVAILABLE" } }`.
+     Nguyên nhân do `gemini-3.6-flash` là model đang trong giai đoạn thử nghiệm/preview có lưu lượng người dùng tăng đột biến. Trong khi đó, `gemini-2.0-flash` là phiên bản General Availability (GA) mới nhất, ổn định cao, tốc độ phản hồi cực nhanh và không bị nghẽn tải.
+  2. **Bố cục Giao diện Chưa Tối ưu Cuộn:**
+     - Các phần điều khiển (chọn tuần học, chọn AI agent, ô nhập chat, nút gửi, nút tổng kết, nút gửi kịch bản) bị cuộn trôi theo nội dung dài của lịch sử trò chuyện và kịch bản.
+     - Người dùng cần một thanh cuộn độc lập cho cả 2 nửa màn hình (Chat Screen & Gherkin Workspace) và toàn bộ các thành phần thao tác được cố định (docking) ở đáy màn hình.
+- **Phương án Kỹ thuật Triển khai:**
+  1. **Tái thiết kế Kiến trúc Giao diện Split-Screen 100vh ([`public/index.html`](./public/index.html)):**
+     - Thiết lập container 100vh không làm tràn màn hình: `.chat-history` và `.editor-textarea` có `flex: 1 1 0; overflow-y: auto;` kèm thanh cuộn Webkit tùy chỉnh đẹp mắt.
+     - Cố định toàn bộ điều khiển thành thanh Dock ở chân màn hình (`flex-shrink: 0; margin-top: auto;`):
+       - **Chat Dock (Nửa trái):** Gồm hàng 1 (`#weekSelector`, `#modelSelector`) và hàng 2 (`#chatInput`, `#btnSendChat`, `#btnRecall`).
+       - **Editor Dock (Nửa phải):** Gồm dòng trạng thái tự lưu nháp và nút `#btnSendScenario`.
+     - Giữ nguyên cơ chế thanh kéo thả linh hoạt `#dragMe`.
+  2. **Chuyển đổi Model Mặc định & Cơ chế Tự Động Fallback 503 ([`functions/api/models.ts`](./functions/api/models.ts), [`functions/api/chat.ts`](./functions/api/chat.ts), [`functions/api/analyze.ts`](./functions/api/analyze.ts)):**
+     - Trong `models.ts`: Đưa `gemini-2.0-flash` lên đầu danh sách khuyến nghị với nhãn `"Gemini 2.0 Flash (Khuyến nghị - Ổn định)"`, đồng thời gắn nhãn `(Tải cao)` cho `gemini-3.6-flash`.
+     - Trong `chat.ts` và `analyze.ts`: Chuyển model mặc định sang `gemini-2.0-flash`. Bổ sung cơ chế tự động thử lại (Auto-retry fallback): nếu yêu cầu tới model người dùng chọn bị lỗi HTTP 503 (High Demand), backend tự động thử lại tức thì bằng `gemini-2.0-flash` trước khi trả kết quả, giúp người dùng không bao giờ bị gián đoạn.
+  3. **Đồng bộ hóa Client & Di chuyển Dữ liệu LocalStorage ([`src/index.ts`](./src/index.ts)):**
+     - Cập nhật hàm `loadAvailableModels()` và toàn bộ điểm gọi API: nếu `localStorage` của người dùng còn lưu các model cũ hoặc lỗi (`gemini-3.6-flash`, `gemini-2.5-flash`), tự động di chuyển sang `gemini-2.0-flash`.
+- **Kết quả Kiểm thử:**
+  - `npm run build` biên dịch sạch sẽ không có cảnh báo.
+  - `npx wrangler deploy --dry-run` thành công 100%.
+
+---
+
 ## 3. Tổng hợp Thay đổi File (Matrix File Changes)
 
-| Tên File                                                 | Thao tác              | Mô tả thay đổi                                                                      |
-| :------------------------------------------------------- | :-------------------- | :---------------------------------------------------------------------------------- |
-| [`functions/api/chat.ts`](./functions/api/chat.ts)       | **Chỉnh sửa**         | Hỗ trợ Dual Mode: phân tích kịch bản Gherkin & đàm thoại tự do có trí nhớ ngữ cảnh. |
-| [`src/index.ts`](./src/index.ts)                         | **Chỉnh sửa**         | Lắng nghe `Enter` và click nút gửi trên `chatInput`, gọi API trò chuyện tự do.      |
-| [`public/index.html`](./public/index.html)               | **Chỉnh sửa**         | Bổ sung nút `#btnSendChat` và cập nhật placeholder cho `#chatInput`.                |
-| [`public/js/index.js`](./public/js/index.js)             | **Biên dịch tự động** | JavaScript phân phối trình duyệt sau khi chạy `npm run build`.                      |
-| [`wrangler.jsonc`](./wrangler.jsonc)                     | **Chỉnh sửa**         | Thêm `"placement": { "region": "gcp:us-central1" }` ép Worker chạy tại Mỹ.          |
-| [`functions/api/analyze.ts`](./functions/api/analyze.ts) | **Chỉnh sửa**         | Hỗ trợ `GEMINI_BASE_URL`, bắt lỗi địa lý và log Cloudflare colo.                    |
-| [`functions/api/models.ts`](./functions/api/models.ts)   | **Chỉnh sửa**         | Hỗ trợ `GEMINI_BASE_URL`, cảnh báo nhẹ nhàng khi danh sách model bị chặn địa lý.    |
-| [`ARCHITECTURE.md`](./ARCHITECTURE.md)                   | **Cập nhật**          | Ghi nhận cơ chế Dual Mode của chat.ts và tài liệu kiến trúc.                        |
-| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Cập nhật**          | Ghi nhận Giai đoạn 13 và cập nhật ma trận file thay đổi.                            |
-| [`worker.ts`](./worker.ts)                               | **Chỉnh sửa**         | Cloudflare Worker ES Module entrypoint: bổ sung routing `/api/models` và CORS.      |
-| [`public/sw.js`](./public/sw.js)                         | **Chỉnh sửa**         | Service Worker v3 an toàn, bypass `/api/*` và fix lỗi `clone()` stream.             |
+| Tên File                                                 | Thao tác              | Mô tả thay đổi                                                                        |
+| :------------------------------------------------------- | :-------------------- | :------------------------------------------------------------------------------------ |
+| [`public/index.html`](./public/index.html)               | **Chỉnh sửa**         | Layout 100vh với cuộn độc lập cho Chat & Editor, docking cố định toàn bộ điều khiển.  |
+| [`src/index.ts`](./src/index.ts)                         | **Chỉnh sửa**         | Đổi default model sang `gemini-2.0-flash`, auto-migrate `localStorage` tránh lỗi 503. |
+| [`functions/api/models.ts`](./functions/api/models.ts)   | **Chỉnh sửa**         | Ưu tiên `gemini-2.0-flash` khuyến nghị ổn định, đánh dấu model tải cao.               |
+| [`functions/api/chat.ts`](./functions/api/chat.ts)       | **Chỉnh sửa**         | Đổi default sang `gemini-2.0-flash`, bổ sung cơ chế Auto-retry fallback khi gặp 503.  |
+| [`functions/api/analyze.ts`](./functions/api/analyze.ts) | **Chỉnh sửa**         | Đổi default sang `gemini-2.0-flash`, bổ sung cơ chế Auto-retry fallback khi gặp 503.  |
+| [`public/js/index.js`](./public/js/index.js)             | **Biên dịch tự động** | JavaScript phân phối trình duyệt sau khi chạy `npm run build`.                        |
+| [`wrangler.jsonc`](./wrangler.jsonc)                     | **Chỉnh sửa**         | Thêm `"placement": { "region": "gcp:us-central1" }` ép Worker chạy tại Mỹ.            |
+| [`ARCHITECTURE.md`](./ARCHITECTURE.md)                   | **Cập nhật**          | Cập nhật tài liệu kiến trúc giao diện Docking và cơ chế Fallback 503.                 |
+| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Cập nhật**          | Ghi nhận Giai đoạn 14 và cập nhật ma trận file thay đổi.                              |
+| [`worker.ts`](./worker.ts)                               | **Chỉnh sửa**         | Cloudflare Worker ES Module entrypoint: bổ sung routing `/api/models` và CORS.        |
+| [`public/sw.js`](./public/sw.js)                         | **Chỉnh sửa**         | Service Worker v3 an toàn, bypass `/api/*` và fix lỗi `clone()` stream.               |
 
 ---
 

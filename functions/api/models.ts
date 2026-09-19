@@ -3,8 +3,13 @@ export async function onRequestGet(context: any) {
   const apiKey = env.GEMINI_API_KEY;
 
   const fallbackModels = [
-    { id: "gemini-3.6-flash", displayName: "Gemini 3.6 Flash (Khuyến nghị)" },
+    {
+      id: "gemini-2.0-flash",
+      displayName: "Gemini 2.0 Flash (Khuyến nghị - Ổn định)",
+    },
+    { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash" },
     { id: "gemini-1.5-flash", displayName: "Gemini 1.5 Flash" },
+    { id: "gemini-3.6-flash", displayName: "Gemini 3.6 Flash" },
     { id: "gemini-1.5-pro", displayName: "Gemini 1.5 Pro" },
   ];
 
@@ -70,20 +75,27 @@ export async function onRequestGet(context: any) {
       .map((m: any) => {
         const id = m.name.replace(/^models\//, "");
         const displayName = m.displayName || id;
+        let finalName = displayName;
+        if (id === "gemini-2.0-flash") {
+          finalName = `${displayName} (Khuyến nghị - Ổn định)`;
+        } else if (id === "gemini-3.6-flash") {
+          finalName = `${displayName} (Tải cao)`;
+        }
         return {
           id,
-          displayName:
-            id === "gemini-3.6-flash"
-              ? `${displayName} (Khuyến nghị)`
-              : displayName,
+          displayName: finalName,
           description: m.description || "",
         };
       });
 
-    // Đưa gemini-3.6-flash lên đầu danh sách
+    // Sắp xếp ưu tiên: gemini-2.0-flash lên đầu, tiếp đến là các model Flash khác
     models.sort((a: any, b: any) => {
-      if (a.id === "gemini-3.6-flash") return -1;
-      if (b.id === "gemini-3.6-flash") return 1;
+      if (a.id === "gemini-2.0-flash") return -1;
+      if (b.id === "gemini-2.0-flash") return 1;
+      const aIsFlash = a.id.toLowerCase().includes("flash");
+      const bIsFlash = b.id.toLowerCase().includes("flash");
+      if (aIsFlash && !bIsFlash) return -1;
+      if (!aIsFlash && bIsFlash) return 1;
       return a.id.localeCompare(b.id);
     });
 
