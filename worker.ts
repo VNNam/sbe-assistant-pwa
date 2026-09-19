@@ -109,7 +109,16 @@ export default {
       );
     }
 
-    // 5. Chuyển tiếp tất cả request còn lại cho Cloudflare Static Assets (public/*)
-    return env.ASSETS.fetch(request);
+    // 5. Tránh lỗi 500 khi trình duyệt tự động request favicon.ico
+    if (pathname === "/favicon.ico") {
+      return new Response(null, { status: 204 });
+    }
+
+    // 6. Chuyển tiếp tất cả request còn lại cho Cloudflare Static Assets (public/*)
+    try {
+      return await env.ASSETS.fetch(request);
+    } catch (err: any) {
+      return new Response("Asset not found", { status: 404 });
+    }
   },
 };

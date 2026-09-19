@@ -61,15 +61,26 @@ export async function onRequestPost(context) {
       throw new Error("Gemini không trả về nội dung hợp lệ.");
     }
 
-    // Làm sạch markdown code block (nếu có) trước khi parse JSON
-    let cleanedText = aiText.trim();
-    if (cleanedText.startsWith("```")) {
-      cleanedText = cleanedText
-        .replace(/^```(?:json)?\s*/i, "")
-        .replace(/\s*```$/, "")
-        .trim();
+    // Trích xuất JSON an toàn (hỗ trợ cả markdown code block hoặc preamble text)
+    let parsedAIResponse: any;
+    try {
+      parsedAIResponse = JSON.parse(aiText.trim());
+    } catch {
+      const codeBlockMatch = aiText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      if (codeBlockMatch && codeBlockMatch[1]) {
+        parsedAIResponse = JSON.parse(codeBlockMatch[1].trim());
+      } else {
+        const firstBrace = aiText.indexOf("{");
+        const lastBrace = aiText.lastIndexOf("}");
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          parsedAIResponse = JSON.parse(
+            aiText.substring(firstBrace, lastBrace + 1).trim(),
+          );
+        } else {
+          throw new Error("Phản hồi không chứa cấu trúc JSON hợp lệ.");
+        }
+      }
     }
-    const parsedAIResponse = JSON.parse(cleanedText);
 
     // 3. Đóng gói dữ liệu Memory Block để lưu trữ
     const memoryBlock = {

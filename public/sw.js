@@ -1,4 +1,4 @@
-const CACHE_NAME = "sbe-assistant-v1";
+const CACHE_NAME = "sbe-assistant-v2";
 
 const ASSETS_TO_CACHE = ["/", "/index.html", "/js/index.js", "/manifest.json"];
 
@@ -9,12 +9,27 @@ self.addEventListener("install", (event) => {
       return cache.addAll(ASSETS_TO_CACHE);
     }),
   );
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  // Xóa bỏ các cache cũ khi có phiên bản Service Worker mới
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => caches.delete(name)),
+      );
+    }),
+  );
+  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // Bắt và xử lý lỗi cho API khi rớt mạng
+  // 1. Đối với API: Network-first, nếu lỗi rớt mạng thì trả về 503 fallback
   if (url.pathname.startsWith("/api/")) {
     event.respondWith(
       fetch(event.request).catch(() => {
@@ -27,20 +42,41 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Xử lý tài nguyên tĩnh
+  // 2. Chỉ cache các request GET đối với static assets
+  if (event.request.method !== "GET") {
+    return;
+  }
+
+  // 3. Cache-First cho static assets
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request)
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+
+      return fetch(event.request)
         .then((networkResponse) => {
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, networkResponse.clone());
-          });
+          // Chỉ cache các phản hồi HTTP 200 thành công
+          if (
+            networkResponse &&
+            networkResponse.status === 200 &&
+            (networkResponse.type === "basic" ||
+              networkResponse.type === "default")
+          ) {
+            // Clone ngay lập tức một cách đồng bộ trước khi body stream bị browser consume
+            const responseToCache = networkResponse.clone();
+            caches
+              .open(CACHE_NAME)
+              .then((cache) => {
+                cache.put(event.request, responseToCache);
+              })
+              .catch(() => {});
+          }
           return networkResponse;
         })
         .catch(() => {
-          console.log("Đang dùng dữ liệu tĩnh từ Cache Storage");
+          console.log("Không thể tải tài nguyên từ mạng hoặc đang offline.");
         });
-      return cachedResponse || fetchPromise;
     }),
   );
 });

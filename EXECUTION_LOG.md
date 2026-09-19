@@ -146,6 +146,29 @@ Tại thời điểm bắt đầu phiên làm việc:
 
 ---
 
+### Giai đoạn 8: Khắc phục lỗi `sw.js Response body is already used` và Lỗi 500 (`/favicon.ico`, `/api/chat`)
+
+- **Triệu chứng lỗi:**
+  1. Console báo lỗi: `sw.js:36 Uncaught (in promise) TypeError: Failed to execute 'clone' on 'Response': Response body is already used`.
+  2. Server trả về HTTP 500 cho `/favicon.ico` và `/api/chat`.
+- **Nguyên nhân cốt lõi (Root Cause):**
+  1. Trong `public/sw.js`, `networkResponse.clone()` bị gọi bất đồng bộ bên trong callback `caches.open().then(...)`. Tại thời điểm callback này chạy, luồng đọc (ReadableStream) của body response đã bị trình duyệt tiêu thụ (consumed/disturbed). Ngoài ra, Service Worker cố tình cache cả những response lỗi 500 và request không phải `GET`.
+  2. Cloudflare Worker Assets báo lỗi 1101 (HTTP 500) khi trình duyệt tự động hỏi `/favicon.ico` vì file này không có trong `public/`.
+  3. Khi gọi Gemini thực tế, phản hồi đôi khi chứa preamble text hoặc markdown code block, dẫn đến lỗi `Expected property name or '}' in JSON at position 1 (line 1 column 2)`.
+- **Giải pháp thực hiện:**
+  1. Nâng cấp [`public/sw.js`](./public/sw.js):
+     - Chỉ cache các request phương thức `GET`.
+     - Chỉ cache các phản hồi thành công `HTTP 200`.
+     - Thực hiện `networkResponse.clone()` **đồng bộ ngay lập tức** trước khi stream bị consume.
+     - Tăng version cache lên `sbe-assistant-v2` và kích hoạt `self.skipWaiting()` + `self.clients.claim()` để dọn dẹp cache cũ.
+  2. Nâng cấp [`worker.ts`](./worker.ts):
+     - Bổ sung handler trả về `204 No Content` cho `/favicon.ico`, ngăn chặn triệt để lỗi 500 từ asset fetch.
+     - Bọc `env.ASSETS.fetch` trong try/catch để tránh unhandled exceptions.
+  3. Nâng cấp [`functions/api/chat.ts`](./functions/api/chat.ts) và [`functions/api/analyze.ts`](./functions/api/analyze.ts):
+     - Bổ sung parser đa tầng: thử parse trực tiếp $\rightarrow$ thử bóc tách block markdown $\rightarrow$ thử tìm cặp ngoặc nhọn `{ ... }` đầu tiên và cuối cùng.
+
+---
+
 ## 3. Tổng hợp Thay đổi File (Matrix File Changes)
 
 | Tên File                                                 | Thao tác               | Mô tả thay đổi                                                                  |
