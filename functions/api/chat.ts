@@ -4,7 +4,7 @@ export async function onRequestPost(context: any) {
   try {
     const payload = await request.json().catch(() => ({}));
     const { currentWeek = 1, scenarioText, message, model } = payload;
-    const chosenModel = model || "gemini-2.0-flash";
+    const chosenModel = model || "gemini-3.8-flash";
     const userMessage = typeof message === "string" ? message.trim() : "";
     const scenarioContent =
       typeof scenarioText === "string" ? scenarioText.trim() : "";
@@ -116,10 +116,13 @@ export async function onRequestPost(context: any) {
       body: JSON.stringify(requestPayload),
     });
 
-    // Tự động chuyển đổi sang gemini-2.0-flash nếu model hiện tại bị 503 (quá tải) hoặc 404
-    if (geminiResponse.status === 503 && activeModel !== "gemini-2.0-flash") {
+    // Tự động chuyển đổi sang gemini-2.0-flash nếu model hiện tại bị 503 (quá tải) hoặc 404 (chưa khả dụng trên tài khoản)
+    if (
+      (geminiResponse.status === 503 || geminiResponse.status === 404) &&
+      activeModel !== "gemini-2.0-flash"
+    ) {
       console.warn(
-        `[High Demand 503] Model ${activeModel} đang quá tải, tự động thử lại với gemini-2.0-flash...`,
+        `[Fallback] Model ${activeModel} trả về HTTP ${geminiResponse.status}, tự động thử lại với gemini-2.0-flash...`,
       );
       activeModel = "gemini-2.0-flash";
       geminiUrl = `${baseUrl}/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;

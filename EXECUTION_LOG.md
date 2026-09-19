@@ -321,21 +321,46 @@ Tại thời điểm bắt đầu phiên làm việc:
 
 ---
 
+### Giai đoạn 15: Nâng cấp Model Gemini lên Phiên bản Mới nhất Gemini 3.8 Flash & Thuật toán Động Xác định Model Mới nhất Tại Thời điểm Truy cập
+
+- **Yêu cầu Người dùng:**
+  - Điều chỉnh model Gemini API lên phiên bản mới nhất `gemini-3.8-flash`.
+  - Thiết lập cơ chế tự động: tại thời điểm người dùng truy cập hệ thống, phiên bản mặc định được chọn LUÔN LÀ PHIÊN BẢN MỚI NHẤT của dòng Gemini Flash.
+- **Phương án Kỹ thuật Triển khai:**
+  1. **Thuật toán Trích xuất Phiên bản & Sắp xếp Động ([`functions/api/models.ts`](./functions/api/models.ts)):**
+     - Bổ sung hàm `extractVersion(id: string)`: parse số phiên bản nổi từ tên định danh (`gemini-3.8-flash` -> `3.8`, `gemini-3.6-flash` -> `3.6`, `gemini-2.0-flash` -> `2.0`, v.v.).
+     - Đảm bảo `gemini-3.8-flash` luôn hiện diện trong danh sách (kể cả khi Google Generative Language API chưa kịp cập nhật meta trên tài khoản).
+     - Sắp xếp động: tất cả các model dòng Flash được sắp xếp giảm dần theo phiên bản (`vB - vA`). Model có số phiên bản Flash cao nhất tại thời điểm truy vấn luôn đứng ở vị trí số 0 và được gán nhãn: `${displayName} (Mới nhất - Mặc định)`.
+     - API endpoint trả về `defaultModel: highestFlashModelId`.
+  2. **Cơ chế Client Lấy Model Mới nhất Khi Truy cập ([`src/index.ts`](./src/index.ts)):**
+     - Trong `loadAvailableModels()`: Khi người dùng mở trang / phiên làm việc mới, client đọc `data.defaultModel` từ API `/api/models` và tự động áp dụng phiên bản Gemini Flash mới nhất làm lựa chọn mặc định.
+     - Sử dụng `sessionStorage` để ghi nhận nếu người dùng chủ động chọn model khác trong phiên làm việc, không can thiệp vào ý muốn thử nghiệm thủ công của người dùng trong phiên đó, nhưng mỗi khi truy cập phiên mới, hệ thống luôn lấy phiên bản mới nhất.
+  3. **Cơ chế Fallback Resiliency 2 Lớp ([`functions/api/chat.ts`](./functions/api/chat.ts), [`functions/api/analyze.ts`](./functions/api/analyze.ts)):**
+     - Đặt model mặc định là `gemini-3.8-flash`.
+     - Bắt đồng thời cả lỗi HTTP 503 (High Demand) và HTTP 404 (chưa khả dụng trên tài khoản API key): nếu model mới nhất gặp bất kỳ lỗi nào từ Google, backend tự động thử lại tức thì với `gemini-2.0-flash` (bản GA cực kỳ ổn định). Người dùng luôn nhận được phản hồi mượt mà, không gặp thông báo lỗi gián đoạn.
+  4. **Cập nhật Giao diện ([`public/index.html`](./public/index.html)):**
+     - Khởi tạo dropdown ban đầu với `gemini-3.8-flash (Mới nhất - Đang tải...)`.
+- **Kết quả Kiểm thử:**
+  - `npm run build` hoàn thành với exit code 0.
+  - `npx wrangler deploy --dry-run` hoàn thành 100% không có lỗi.
+
+---
+
 ## 3. Tổng hợp Thay đổi File (Matrix File Changes)
 
-| Tên File                                                 | Thao tác              | Mô tả thay đổi                                                                        |
-| :------------------------------------------------------- | :-------------------- | :------------------------------------------------------------------------------------ |
-| [`public/index.html`](./public/index.html)               | **Chỉnh sửa**         | Layout 100vh với cuộn độc lập cho Chat & Editor, docking cố định toàn bộ điều khiển.  |
-| [`src/index.ts`](./src/index.ts)                         | **Chỉnh sửa**         | Đổi default model sang `gemini-2.0-flash`, auto-migrate `localStorage` tránh lỗi 503. |
-| [`functions/api/models.ts`](./functions/api/models.ts)   | **Chỉnh sửa**         | Ưu tiên `gemini-2.0-flash` khuyến nghị ổn định, đánh dấu model tải cao.               |
-| [`functions/api/chat.ts`](./functions/api/chat.ts)       | **Chỉnh sửa**         | Đổi default sang `gemini-2.0-flash`, bổ sung cơ chế Auto-retry fallback khi gặp 503.  |
-| [`functions/api/analyze.ts`](./functions/api/analyze.ts) | **Chỉnh sửa**         | Đổi default sang `gemini-2.0-flash`, bổ sung cơ chế Auto-retry fallback khi gặp 503.  |
-| [`public/js/index.js`](./public/js/index.js)             | **Biên dịch tự động** | JavaScript phân phối trình duyệt sau khi chạy `npm run build`.                        |
-| [`wrangler.jsonc`](./wrangler.jsonc)                     | **Chỉnh sửa**         | Thêm `"placement": { "region": "gcp:us-central1" }` ép Worker chạy tại Mỹ.            |
-| [`ARCHITECTURE.md`](./ARCHITECTURE.md)                   | **Cập nhật**          | Cập nhật tài liệu kiến trúc giao diện Docking và cơ chế Fallback 503.                 |
-| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Cập nhật**          | Ghi nhận Giai đoạn 14 và cập nhật ma trận file thay đổi.                              |
-| [`worker.ts`](./worker.ts)                               | **Chỉnh sửa**         | Cloudflare Worker ES Module entrypoint: bổ sung routing `/api/models` và CORS.        |
-| [`public/sw.js`](./public/sw.js)                         | **Chỉnh sửa**         | Service Worker v3 an toàn, bypass `/api/*` và fix lỗi `clone()` stream.               |
+| Tên File                                                 | Thao tác              | Mô tả thay đổi                                                                         |
+| :------------------------------------------------------- | :-------------------- | :------------------------------------------------------------------------------------- |
+| [`functions/api/models.ts`](./functions/api/models.ts)   | **Chỉnh sửa**         | Thuật toán parse version động, xếp model Flash cao nhất lên đầu làm mặc định mới nhất. |
+| [`functions/api/chat.ts`](./functions/api/chat.ts)       | **Chỉnh sửa**         | Mặc định `gemini-3.8-flash`, auto-retry fallback 404 & 503 sang `gemini-2.0-flash`.    |
+| [`functions/api/analyze.ts`](./functions/api/analyze.ts) | **Chỉnh sửa**         | Mặc định `gemini-3.8-flash`, auto-retry fallback 404 & 503 sang `gemini-2.0-flash`.    |
+| [`src/index.ts`](./src/index.ts)                         | **Chỉnh sửa**         | Tự động áp dụng model Flash mới nhất tại thời điểm truy cập, fallback 3.8 flash.       |
+| [`public/index.html`](./public/index.html)               | **Chỉnh sửa**         | Layout 100vh docking, khởi tạo mặc định ban đầu hiển thị `gemini-3.8-flash`.           |
+| [`public/js/index.js`](./public/js/index.js)             | **Biên dịch tự động** | JavaScript phân phối trình duyệt sau khi chạy `npm run build`.                         |
+| [`ARCHITECTURE.md`](./ARCHITECTURE.md)                   | **Cập nhật**          | Cập nhật tài liệu kiến trúc thuật toán lấy model mới nhất và cơ chế fallback 404/503.  |
+| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Cập nhật**          | Ghi nhận Giai đoạn 15 và cập nhật ma trận file thay đổi.                               |
+| [`wrangler.jsonc`](./wrangler.jsonc)                     | **Chỉnh sửa**         | Thêm `"placement": { "region": "gcp:us-central1" }` ép Worker chạy tại Mỹ.             |
+| [`worker.ts`](./worker.ts)                               | **Chỉnh sửa**         | Cloudflare Worker ES Module entrypoint: routing `/api/models` và CORS.                 |
+| [`public/sw.js`](./public/sw.js)                         | **Chỉnh sửa**         | Service Worker v3 an toàn, bypass `/api/*` và fix lỗi `clone()` stream.                |
 
 ---
 

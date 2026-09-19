@@ -33,15 +33,9 @@ gherkinEditor.addEventListener("input", () => {
 // Tải danh sách model Gemini khả dụng từ backend
 async function loadAvailableModels() {
   if (!modelSelector) return;
-  let savedModel = localStorage.getItem("sbe_selected_model");
-  if (
-    !savedModel ||
-    savedModel === "gemini-3.6-flash" ||
-    savedModel === "gemini-2.5-flash"
-  ) {
-    savedModel = "gemini-2.0-flash";
-    localStorage.setItem("sbe_selected_model", "gemini-2.0-flash");
-  }
+
+  // Kiểm tra xem người dùng có chủ động đổi model trong phiên hiện tại không
+  const userManualChoice = sessionStorage.getItem("sbe_user_picked_model");
 
   try {
     const res = await fetch("/api/models");
@@ -49,6 +43,11 @@ async function loadAvailableModels() {
     const data = await res.json();
     const models: Array<{ id: string; displayName: string }> =
       data.models || [];
+    const latestDefaultModel =
+      data.defaultModel || models[0]?.id || "gemini-3.8-flash";
+
+    // Mặc định lấy phiên bản Gemini Flash mới nhất tại thời điểm truy cập
+    const activeModel = userManualChoice || latestDefaultModel;
 
     if (models.length > 0) {
       modelSelector.innerHTML = "";
@@ -56,16 +55,19 @@ async function loadAvailableModels() {
         const opt = document.createElement("option");
         opt.value = m.id;
         opt.textContent = m.displayName || m.id;
-        if (m.id === savedModel) {
+        if (m.id === activeModel) {
           opt.selected = true;
         }
         modelSelector.appendChild(opt);
       });
 
-      // Nếu model lưu trước đó không tồn tại trong danh sách mới, chọn model đầu tiên
-      if (!models.some((m) => m.id === savedModel)) {
-        modelSelector.value = models[0].id;
-        localStorage.setItem("sbe_selected_model", models[0].id);
+      // Đảm bảo modelSelector phản ánh đúng activeModel hoặc model mới nhất đầu tiên
+      if (!models.some((m) => m.id === activeModel)) {
+        modelSelector.value = latestDefaultModel;
+        localStorage.setItem("sbe_selected_model", latestDefaultModel);
+      } else {
+        modelSelector.value = activeModel;
+        localStorage.setItem("sbe_selected_model", activeModel);
       }
     }
   } catch (err) {
@@ -73,12 +75,15 @@ async function loadAvailableModels() {
       "Không thể tải danh sách model động từ /api/models, dùng model dự phòng:",
       err,
     );
-    modelSelector.value = savedModel;
+    const fallbackModel = "gemini-3.8-flash";
+    modelSelector.value = fallbackModel;
+    localStorage.setItem("sbe_selected_model", fallbackModel);
   }
 }
 
 if (modelSelector) {
   modelSelector.addEventListener("change", () => {
+    sessionStorage.setItem("sbe_user_picked_model", modelSelector.value);
     localStorage.setItem("sbe_selected_model", modelSelector.value);
   });
 }
@@ -136,7 +141,7 @@ async function sendChatMessage() {
   const selectedModel =
     modelSelector?.value ||
     localStorage.getItem("sbe_selected_model") ||
-    "gemini-2.0-flash";
+    "gemini-3.8-flash";
 
   appendMessage("Bạn", `<p style="margin: 0;">${escapeHtml(text)}</p>`);
 
@@ -232,7 +237,7 @@ btnSend.addEventListener("click", async () => {
   const selectedModel =
     modelSelector?.value ||
     localStorage.getItem("sbe_selected_model") ||
-    "gemini-2.0-flash";
+    "gemini-3.8-flash";
 
   const payload: ScenarioPayload = {
     currentWeek: currentWeek,
@@ -323,7 +328,7 @@ btnRecall.addEventListener("click", async () => {
   const selectedModel =
     modelSelector?.value ||
     localStorage.getItem("sbe_selected_model") ||
-    "gemini-2.0-flash";
+    "gemini-3.8-flash";
 
   btnRecall.disabled = true;
   btnRecall.textContent = "Đang tổng kết...";
