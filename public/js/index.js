@@ -2,19 +2,104 @@
 const btnSend = document.getElementById("btnSendScenario");
 const btnRecall = document.getElementById("btnRecall");
 const gherkinEditor = document.getElementById("gherkinEditor");
+const gherkinHighlighting = document.getElementById("gherkinHighlighting");
+const gherkinHighlightingCode = document.getElementById("gherkinHighlightingCode");
 const chatHistory = document.getElementById("chatHistory");
 const weekSelector = document.getElementById("weekSelector");
 const modelSelector = document.getElementById("modelSelector");
 const chatInput = document.getElementById("chatInput");
 const btnSendChat = document.getElementById("btnSendChat");
+// Làm sạch localStorage nếu còn lưu trữ model cũ đã bị Google khai tử
+const currentSavedModel = localStorage.getItem("sbe_selected_model");
+if (currentSavedModel &&
+    (currentSavedModel.includes("gemini-2.0-flash") ||
+        currentSavedModel.includes("gemini-2.5-flash"))) {
+    localStorage.removeItem("sbe_selected_model");
+}
+function getEffectiveModel() {
+    let model = modelSelector?.value ||
+        localStorage.getItem("sbe_selected_model") ||
+        "gemini-3.6-flash";
+    if (model.includes("gemini-2.0-flash") ||
+        model.includes("gemini-2.5-flash")) {
+        model = "gemini-3.6-flash";
+        localStorage.setItem("sbe_selected_model", model);
+    }
+    return model;
+}
+// Hàm đổi màu các từ khóa Gherkin (Syntax Highlighting)
+function highlightGherkin(text) {
+    if (!text)
+        return "";
+    // 1. Escape HTML chống XSS và giữ định dạng
+    let escaped = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    // 2. Chú thích (# ...)
+    escaped = escaped.replace(/(#[^\n]*)/g, '<span class="gh-comment">$1</span>');
+    // 3. Chuỗi trong ngoặc kép ("..." hoặc '...')
+    escaped = escaped.replace(/(".*?"|'.*?')/g, '<span class="gh-string">$1</span>');
+    // 4. Tags (@tag)
+    escaped = escaped.replace(/(@[\w-]+)/g, '<span class="gh-tag">$1</span>');
+    // 5. Từ khóa Feature (Feature: hoặc Tính năng:)
+    escaped = escaped.replace(/\b(Feature|Tính năng):/g, '<span class="gh-kwd-feature">$1:</span>');
+    // 6. Từ khóa Scenario / Scenario Outline / Kịch bản / Kịch bản mẫu
+    escaped = escaped.replace(/\b(Scenario Outline|Scenario|Kịch bản mẫu|Kịch bản):/g, '<span class="gh-kwd-scenario">$1:</span>');
+    // 7. Từ khóa Background / Examples / Bối cảnh / Ví dụ
+    escaped = escaped.replace(/\b(Background|Examples|Bối cảnh|Ví dụ):/g, '<span class="gh-kwd-sub">$1:</span>');
+    // 8. Từ khóa các bước (Given, When, Then, And, But, Cho, Khi, Thì, Và, Nhưng)
+    escaped = escaped.replace(/\b(Given|When|Then|And|But|Cho|Khi|Thì|Và|Nhưng)\b/g, '<span class="gh-kwd-step">$1</span>');
+    // 9. Dấu Pipe (|) của bảng dữ liệu (Data Table)
+    escaped = escaped.replace(/(\|)/g, '<span class="gh-pipe">$1</span>');
+    return escaped;
+}
+function updateEditorHighlight() {
+    if (!gherkinHighlightingCode || !gherkinEditor)
+        return;
+    let val = gherkinEditor.value;
+    // Bổ sung khoảng trắng nếu kết thúc bằng ký tự xuống dòng để pre khớp chiều cao
+    if (val[val.length - 1] === "\n") {
+        val += " ";
+    }
+    gherkinHighlightingCode.innerHTML = highlightGherkin(val);
+    if (gherkinHighlighting) {
+        gherkinHighlighting.scrollTop = gherkinEditor.scrollTop;
+        gherkinHighlighting.scrollLeft = gherkinEditor.scrollLeft;
+    }
+}
 // Tự động khôi phục bản nháp từ LocalStorage khi mở lại web
 const savedDraft = localStorage.getItem("sbe_draft");
 if (savedDraft) {
     gherkinEditor.value = savedDraft;
+    updateEditorHighlight();
 }
-// Lưu nháp mỗi khi người dùng gõ phím
+// Cập nhật highlight và lưu nháp khi gõ phím
 gherkinEditor.addEventListener("input", () => {
+    updateEditorHighlight();
     localStorage.setItem("sbe_draft", gherkinEditor.value);
+});
+// Đồng bộ cuộn giữa textarea và pre highlight
+gherkinEditor.addEventListener("scroll", () => {
+    if (gherkinHighlighting) {
+        gherkinHighlighting.scrollTop = gherkinEditor.scrollTop;
+        gherkinHighlighting.scrollLeft = gherkinEditor.scrollLeft;
+    }
+});
+// Hỗ trợ thụt lề bằng phím Tab (2 spaces) chuẩn IDE
+gherkinEditor.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") {
+        e.preventDefault();
+        const start = gherkinEditor.selectionStart;
+        const end = gherkinEditor.selectionEnd;
+        gherkinEditor.value =
+            gherkinEditor.value.substring(0, start) +
+                "  " +
+                gherkinEditor.value.substring(end);
+        gherkinEditor.selectionStart = gherkinEditor.selectionEnd = start + 2;
+        updateEditorHighlight();
+        localStorage.setItem("sbe_draft", gherkinEditor.value);
+    }
 });
 // Tải danh sách model Gemini khả dụng từ backend
 async function loadAvailableModels() {
@@ -113,9 +198,7 @@ async function sendChatMessage() {
         btnSendChat.textContent = "...";
     }
     const currentWeek = parseInt(weekSelector.value, 10) || 1;
-    const selectedModel = modelSelector?.value ||
-        localStorage.getItem("sbe_selected_model") ||
-        "gemini-3.8-flash";
+    const selectedModel = getEffectiveModel();
     appendMessage("Bạn", `<p style="margin: 0;">${escapeHtml(text)}</p>`);
     try {
         const response = await fetch("/api/chat", {
@@ -191,9 +274,7 @@ btnSend.addEventListener("click", async () => {
     btnSend.textContent = "Đang xử lý...";
     const currentWeek = parseInt(weekSelector.value);
     appendMessage("Bạn", `<pre style="background: #f4f4f4; padding: 8px; border-radius: 4px;">${text}</pre>`);
-    const selectedModel = modelSelector?.value ||
-        localStorage.getItem("sbe_selected_model") ||
-        "gemini-3.8-flash";
+    const selectedModel = getEffectiveModel();
     const payload = {
         currentWeek: currentWeek,
         scenarioText: text,
@@ -251,6 +332,7 @@ btnSend.addEventListener("click", async () => {
         // Gửi thành công, xóa bản nháp
         localStorage.removeItem("sbe_draft");
         gherkinEditor.value = "";
+        updateEditorHighlight();
     }
     catch (error) {
         if (error.message === "OFFLINE") {
@@ -267,9 +349,7 @@ btnSend.addEventListener("click", async () => {
 });
 btnRecall.addEventListener("click", async () => {
     const currentWeek = parseInt(weekSelector.value, 10) || 1;
-    const selectedModel = modelSelector?.value ||
-        localStorage.getItem("sbe_selected_model") ||
-        "gemini-3.8-flash";
+    const selectedModel = getEffectiveModel();
     btnRecall.disabled = true;
     btnRecall.textContent = "Đang tổng kết...";
     appendMessage("Hệ thống", `Đang trích xuất dữ liệu từ <em>Memory_Blocks</em> và tiến hành phân tích tiến trình học tập cho Tuần ${currentWeek} (Mô hình: ${selectedModel})...`, false);

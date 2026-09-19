@@ -158,26 +158,98 @@
         padding: 16px 20px 0 20px;
       }
 
-      .editor-textarea {
+      .editor-wrapper {
+        position: relative;
         flex: 1 1 0;
         min-height: 0;
         width: 100%;
         background: #1e1e1e;
-        color: #d4d4d4;
         border: 1px solid #333;
         border-radius: 6px;
-        padding: 14px;
-        font-family: "Consolas", "Monaco", "Courier New", monospace;
-        font-size: 14px;
-        line-height: 1.5;
-        resize: none;
-        overflow-y: auto;
-        outline: none;
+        overflow: hidden;
         transition: border-color 0.2s;
       }
 
-      .editor-textarea:focus {
+      .editor-wrapper:focus-within {
         border-color: #007acc;
+      }
+
+      .editor-highlighting,
+      .editor-textarea {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        padding: 14px;
+        margin: 0;
+        box-sizing: border-box;
+        font-family: "Consolas", "Monaco", "Courier New", monospace;
+        font-size: 14px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        tab-size: 2;
+        border: none;
+      }
+
+      .editor-highlighting {
+        pointer-events: none;
+        overflow: hidden;
+        color: #d4d4d4;
+        background: transparent;
+        z-index: 1;
+      }
+
+      .editor-highlighting code {
+        font-family: inherit;
+        font-size: inherit;
+        line-height: inherit;
+        white-space: inherit;
+      }
+
+      .editor-textarea {
+        background: transparent;
+        color: transparent;
+        caret-color: #58a6ff;
+        resize: none;
+        overflow-y: auto;
+        outline: none;
+        z-index: 2;
+      }
+
+      /* Màu sắc Gherkin Syntax Highlighting chuẩn phong cách VS Code Modern */
+      .gh-kwd-feature {
+        color: #f59e0b;
+        font-weight: bold;
+      }
+      .gh-kwd-scenario {
+        color: #c678dd;
+        font-weight: bold;
+      }
+      .gh-kwd-sub {
+        color: #e06c75;
+        font-weight: 600;
+      }
+      .gh-kwd-step {
+        color: #61afef;
+        font-weight: 600;
+      }
+      .gh-string {
+        color: #98c379;
+      }
+      .gh-comment {
+        color: #7f848e;
+        font-style: italic;
+      }
+      .gh-tag {
+        color: #4ec9b0;
+        font-weight: 500;
+      }
+      .gh-pipe {
+        color: #d19a66;
+        font-weight: bold;
       }
 
       /* Thanh cuộn cho Gherkin Editor */
@@ -310,13 +382,24 @@
 
       <!-- Nửa phải: Thực hành Gherkin Workspace -->
       <div class="gherkin-editor-section">
-        <!-- Khung soạn thảo Gherkin cuộn độc lập -->
+        <!-- Khung soạn thảo Gherkin cuộn độc lập với Syntax Highlighting -->
         <div class="editor-container">
-          <textarea
-            id="gherkinEditor"
-            class="editor-textarea"
-            placeholder="Feature: ...&#10;Scenario: ..."
-          ></textarea>
+          <div class="editor-wrapper" id="editorWrapper">
+            <pre
+              id="gherkinHighlighting"
+              class="editor-highlighting"
+              aria-hidden="true"
+            ><code id="gherkinHighlightingCode"></code></pre>
+            <textarea
+              id="gherkinEditor"
+              class="editor-textarea"
+              placeholder="Feature: ...&#10;Scenario: ..."
+              spellcheck="false"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+            ></textarea>
+          </div>
         </div>
 
         <!-- Cụm điều khiển Dock cố định ở cuối màn hình thực hành -->

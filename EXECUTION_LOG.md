@@ -346,21 +346,54 @@ Tại thời điểm bắt đầu phiên làm việc:
 
 ---
 
+### Giai đoạn 16: Khắc phục Triệt để Lỗi Model Bị Khai Tử (HTTP 404 No Longer Available), Cơ chế Candidate Models Resilient Retry với Gemini 3.6 Flash, và Gherkin Syntax Highlighting Đổi Màu Từ Khóa
+
+- **Hiện tượng & Vấn đề phát hiện:**
+  1. **Lỗi 404 Model Khai Tử:** Khi người dùng gửi kịch bản, hệ thống gặp lỗi:
+     `Gemini API Error (404): { "error": { "code": 404, "message": "This model models/gemini-2.0-flash is no longer available. Please update your code to use models/gemini-3.6-flash for the latest features and improvements. We recommend you to use the Interactions API.", "status": "NOT_FOUND" } }`.
+     - **Nguyên nhân gốc rễ:** Google đã chính thức ngừng hỗ trợ (no longer available) cả 2 model `gemini-2.0-flash` và `gemini-2.5-flash`, đồng thời chỉ định chuyển sang `gemini-3.6-flash`. Khi trình duyệt lưu model cũ trong `localStorage` hoặc khi fallback nhảy vào `gemini-2.0-flash`, request bị Google từ chối ngay lập tức.
+  2. **Trải nghiệm Soạn thảo Kịch bản (Editor):** Cần đổi màu từ khóa chuẩn Gherkin (`Feature`, `Scenario`, `Given`, `When`, `Then`, `And`, v.v.) để làm đẹp và tăng tính trực quan sư phạm cho người học.
+- **Phương án Kỹ thuật Triển khai:**
+  1. **Loại bỏ Hoàn toàn Model Khai Tử & Cơ chế Candidate Models Fallback ([`functions/api/models.ts`](./functions/api/models.ts), [`functions/api/chat.ts`](./functions/api/chat.ts), [`functions/api/analyze.ts`](./functions/api/analyze.ts)):**
+     - Xóa bỏ triệt để `gemini-2.0-flash` và `gemini-2.5-flash` khỏi hệ thống.
+     - Thiết lập chuỗi candidate models: `[chosenModel, 'gemini-3.6-flash', 'gemini-1.5-flash']`.
+     - Chuẩn hóa: nếu đầu vào có chứa model đã khai tử, lập tức chuyển hướng sang `gemini-3.6-flash`.
+     - Tự động retry với backoff (600ms) nếu gặp lỗi 503 (High Demand tạm thời) trước khi chuyển candidate tiếp theo.
+  2. **Làm sạch `localStorage` & Hàm Lấy Model Nhất quán ([`src/index.ts`](./src/index.ts)):**
+     - Tự động xóa hoặc di chuyển các giá trị `gemini-2.0-flash` / `gemini-2.5-flash` còn đọng lại trong `localStorage` của trình duyệt.
+     - Bổ sung hàm `getEffectiveModel()` dùng chung cho cả 3 nút: "Gửi kịch bản" (`btnSendScenario`), "Gửi tin nhắn" (`btnSendChat`), và "Tổng kết" (`btnRecall`), đảm bảo model gửi đi luôn hợp lệ.
+  3. **Xây dựng Gherkin Syntax Highlighting Chuẩn IDE ([`public/index.html`](./public/index.html), [`src/index.ts`](./src/index.ts)):**
+     - Ứng dụng kỹ thuật Textarea Overlay (Textarea trong suốt đè lên `<pre><code>` màu với đồng bộ scroll và font):
+       - `Feature:`, `Tính năng:` $\rightarrow$ Màu vàng hổ phách (`#f59e0b`, font-weight: bold).
+       - `Scenario:`, `Scenario Outline:`, `Kịch bản:` $\rightarrow$ Màu tím sáng (`#c678dd`, font-weight: bold).
+       - `Background:`, `Examples:`, `Bối cảnh:`, `Ví dụ:` $\rightarrow$ Màu đỏ hồng (`#e06c75`).
+       - `Given`, `When`, `Then`, `And`, `But`, `Cho`, `Khi`, `Thì`, `Và`, `Nhưng` $\rightarrow$ Màu xanh công nghệ (`#61afef`, font-weight: 600).
+       - Chuỗi trong ngoặc kép `"..."` $\rightarrow$ Màu xanh lá cây (`#98c379`).
+       - Dấu Pipe bảng dữ liệu `|` $\rightarrow$ Màu cam đất (`#d19a66`).
+       - Comment `# ...` $\rightarrow$ Màu xám nghiêng (`#7f848e`).
+       - Tags `@...` $\rightarrow$ Màu xanh ngọc (`#4ec9b0`).
+     - Hỗ trợ phím `Tab` thụt lề 2 khoảng trắng chuẩn IDE lập trình.
+- **Kết quả Kiểm thử:**
+  - `npm run build` thành công, biên dịch `public/js/index.js` chuẩn xác.
+  - `npx wrangler deploy --dry-run` hoàn thành 100% không có lỗi.
+
+---
+
 ## 3. Tổng hợp Thay đổi File (Matrix File Changes)
 
-| Tên File                                                 | Thao tác              | Mô tả thay đổi                                                                         |
-| :------------------------------------------------------- | :-------------------- | :------------------------------------------------------------------------------------- |
-| [`functions/api/models.ts`](./functions/api/models.ts)   | **Chỉnh sửa**         | Thuật toán parse version động, xếp model Flash cao nhất lên đầu làm mặc định mới nhất. |
-| [`functions/api/chat.ts`](./functions/api/chat.ts)       | **Chỉnh sửa**         | Mặc định `gemini-3.8-flash`, auto-retry fallback 404 & 503 sang `gemini-2.0-flash`.    |
-| [`functions/api/analyze.ts`](./functions/api/analyze.ts) | **Chỉnh sửa**         | Mặc định `gemini-3.8-flash`, auto-retry fallback 404 & 503 sang `gemini-2.0-flash`.    |
-| [`src/index.ts`](./src/index.ts)                         | **Chỉnh sửa**         | Tự động áp dụng model Flash mới nhất tại thời điểm truy cập, fallback 3.8 flash.       |
-| [`public/index.html`](./public/index.html)               | **Chỉnh sửa**         | Layout 100vh docking, khởi tạo mặc định ban đầu hiển thị `gemini-3.8-flash`.           |
-| [`public/js/index.js`](./public/js/index.js)             | **Biên dịch tự động** | JavaScript phân phối trình duyệt sau khi chạy `npm run build`.                         |
-| [`ARCHITECTURE.md`](./ARCHITECTURE.md)                   | **Cập nhật**          | Cập nhật tài liệu kiến trúc thuật toán lấy model mới nhất và cơ chế fallback 404/503.  |
-| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Cập nhật**          | Ghi nhận Giai đoạn 15 và cập nhật ma trận file thay đổi.                               |
-| [`wrangler.jsonc`](./wrangler.jsonc)                     | **Chỉnh sửa**         | Thêm `"placement": { "region": "gcp:us-central1" }` ép Worker chạy tại Mỹ.             |
-| [`worker.ts`](./worker.ts)                               | **Chỉnh sửa**         | Cloudflare Worker ES Module entrypoint: routing `/api/models` và CORS.                 |
-| [`public/sw.js`](./public/sw.js)                         | **Chỉnh sửa**         | Service Worker v3 an toàn, bypass `/api/*` và fix lỗi `clone()` stream.                |
+| Tên File                                                 | Thao tác              | Mô tả thay đổi                                                                              |
+| :------------------------------------------------------- | :-------------------- | :------------------------------------------------------------------------------------------ |
+| [`public/index.html`](./public/index.html)               | **Chỉnh sửa**         | Thêm lớp Syntax Highlighting Gherkin cho Editor và bộ CSS styling màu sắc chuẩn IDE.        |
+| [`src/index.ts`](./src/index.ts)                         | **Chỉnh sửa**         | Đồng bộ syntax highlight, phím Tab, dọn dẹp localStorage và thống nhất `getEffectiveModel`. |
+| [`functions/api/models.ts`](./functions/api/models.ts)   | **Chỉnh sửa**         | Gỡ bỏ model khai tử, chuẩn hóa `gemini-3.6-flash` (chuẩn Google) và `gemini-3.8-flash`.     |
+| [`functions/api/chat.ts`](./functions/api/chat.ts)       | **Chỉnh sửa**         | Chuỗi Candidate Fallback: auto chuyển sang `gemini-3.6-flash`, retry 503 backoff.           |
+| [`functions/api/analyze.ts`](./functions/api/analyze.ts) | **Chỉnh sửa**         | Chuỗi Candidate Fallback cho Recall: bảo vệ toàn diện chống lỗi 404 và 503.                 |
+| [`public/js/index.js`](./public/js/index.js)             | **Biên dịch tự động** | JavaScript phân phối trình duyệt sau khi chạy `npm run build`.                              |
+| [`ARCHITECTURE.md`](./ARCHITECTURE.md)                   | **Cập nhật**          | Cập nhật tài liệu kiến trúc Gherkin Syntax Highlighting và Candidate Fallback Chain.        |
+| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Cập nhật**          | Ghi nhận Giai đoạn 16 và cập nhật ma trận file thay đổi.                                    |
+| [`wrangler.jsonc`](./wrangler.jsonc)                     | **Chỉnh sửa**         | Thêm `"placement": { "region": "gcp:us-central1" }` ép Worker chạy tại Mỹ.                  |
+| [`worker.ts`](./worker.ts)                               | **Chỉnh sửa**         | Cloudflare Worker ES Module entrypoint: routing `/api/models` và CORS.                      |
+| [`public/sw.js`](./public/sw.js)                         | **Chỉnh sửa**         | Service Worker v3 an toàn, bypass `/api/*` và fix lỗi `clone()` stream.                     |
 
 ---
 

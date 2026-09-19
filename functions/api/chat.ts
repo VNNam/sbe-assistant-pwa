@@ -96,12 +96,11 @@ export async function onRequestPost(context: any) {
       }`;
     }
 
-    // 2. Gọi Gemini REST API
+    // 2. Gọi Gemini REST API với cơ chế Multi-Candidate Fallback & Retry
     const baseUrl = (
       env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com"
     ).replace(/\/+$/, "");
-    let activeModel = chosenModel;
-    let geminiUrl = `${baseUrl}/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;
+
     const requestPayload = {
       contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
       generationConfig: {
@@ -110,31 +109,72 @@ export async function onRequestPost(context: any) {
       },
     };
 
-    let geminiResponse = await fetch(geminiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestPayload),
-    });
-
-    // Tự động chuyển đổi sang gemini-2.0-flash nếu model hiện tại bị 503 (quá tải) hoặc 404 (chưa khả dụng trên tài khoản)
+    // Chuẩn hóa model: nếu là model đã bị Google khai tử, tự động chuyển sang gemini-3.6-flash
+    let initialModel = chosenModel;
     if (
-      (geminiResponse.status === 503 || geminiResponse.status === 404) &&
-      activeModel !== "gemini-2.0-flash"
+      initialModel.includes("gemini-2.0-flash") ||
+      initialModel.includes("gemini-2.5-flash")
     ) {
-      console.warn(
-        `[Fallback] Model ${activeModel} trả về HTTP ${geminiResponse.status}, tự động thử lại với gemini-2.0-flash...`,
-      );
-      activeModel = "gemini-2.0-flash";
-      geminiUrl = `${baseUrl}/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;
-      geminiResponse = await fetch(geminiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestPayload),
-      });
+      initialModel = "gemini-3.6-flash";
     }
 
-    if (!geminiResponse.ok) {
-      const errText = await geminiResponse.text();
+    const candidateModels = [initialModel];
+    if (!candidateModels.includes("gemini-3.6-flash")) {
+      candidateModels.push("gemini-3.6-flash");
+    }
+    if (!candidateModels.includes("gemini-1.5-flash")) {
+      candidateModels.push("gemini-1.5-flash");
+    }
+
+    let geminiResponse: Response | null = null;
+    let activeModel = initialModel;
+    let lastErrText = "";
+
+    for (const modelToTry of candidateModels) {
+      activeModel = modelToTry;
+      const geminiUrl = `${baseUrl}/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        geminiResponse = await fetch(geminiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestPayload),
+        });
+
+        if (geminiResponse.ok) break;
+
+        if (geminiResponse.status === 503 && attempt === 0) {
+          // 503 High Demand: Chờ 600ms rồi thử lại
+          await new Promise((r) => setTimeout(r, 600));
+          continue;
+        }
+        break;
+      }
+
+      if (geminiResponse && geminiResponse.ok) {
+        break;
+      }
+
+      if (
+        geminiResponse &&
+        (geminiResponse.status === 404 || geminiResponse.status === 503)
+      ) {
+        lastErrText = await geminiResponse.text().catch(() => "");
+        console.warn(
+          `[Fallback] Model ${modelToTry} gặp HTTP ${geminiResponse.status}, chuyển sang candidate tiếp theo...`,
+        );
+        continue;
+      }
+
+      break;
+    }
+
+    if (!geminiResponse || !geminiResponse.ok) {
+      const errText =
+        lastErrText ||
+        (geminiResponse
+          ? await geminiResponse.text().catch(() => "")
+          : "Unknown");
       const colo = request.cf?.colo || "Local";
       if (
         errText.includes("User location is not supported") ||

@@ -8,12 +8,13 @@ export async function onRequestGet(context: any) {
       displayName: "Gemini 3.8 Flash (Mới nhất - Mặc định)",
     },
     {
-      id: "gemini-2.0-flash",
-      displayName: "Gemini 2.0 Flash (Khuyến nghị - Ổn định)",
+      id: "gemini-3.6-flash",
+      displayName: "Gemini 3.6 Flash (Khuyến nghị từ Google)",
     },
-    { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash" },
-    { id: "gemini-1.5-flash", displayName: "Gemini 1.5 Flash" },
-    { id: "gemini-3.6-flash", displayName: "Gemini 3.6 Flash (Tải cao)" },
+    {
+      id: "gemini-1.5-flash",
+      displayName: "Gemini 1.5 Flash (Dự phòng ổn định)",
+    },
     { id: "gemini-1.5-pro", displayName: "Gemini 1.5 Pro" },
   ];
 
@@ -71,16 +72,20 @@ export async function onRequestGet(context: any) {
     const data: any = await res.json();
     const rawList = data.models || [];
 
-    // Lọc chỉ lấy các model hỗ trợ generateContent và thuộc họ gemini
+    // Lọc chỉ lấy các model hỗ trợ generateContent, thuộc họ gemini và LOẠI BỎ các model đã bị Google khai tử
     const models: any[] = rawList
       .filter((m: any) => {
         const methods = m.supportedGenerationMethods || [];
         const name = (m.name || "").toLowerCase();
+        const isDeprecated =
+          name.includes("gemini-2.0-flash") ||
+          name.includes("gemini-2.5-flash");
         return (
           methods.includes("generateContent") &&
           name.includes("gemini") &&
           !name.includes("vision") &&
-          !name.includes("embedding")
+          !name.includes("embedding") &&
+          !isDeprecated
         );
       })
       .map((m: any) => {
@@ -102,6 +107,15 @@ export async function onRequestGet(context: any) {
       });
     }
 
+    // Đảm bảo gemini-3.6-flash (chuẩn Google) luôn hiện diện
+    if (!models.some((m) => m.id === "gemini-3.6-flash")) {
+      models.push({
+        id: "gemini-3.6-flash",
+        displayName: "Gemini 3.6 Flash",
+        description: "Google Gemini 3.6 Flash recommended model.",
+      });
+    }
+
     // Sắp xếp model: Flash lên trước (theo phiên bản cao nhất đến thấp nhất), sau đó là các model khác
     models.sort((a: any, b: any) => {
       const aIsFlash = a.id.toLowerCase().includes("flash");
@@ -120,22 +134,22 @@ export async function onRequestGet(context: any) {
       return a.id.localeCompare(b.id);
     });
 
-    // Định dạng nhãn hiển thị cho model: model flash cao nhất là Mới nhất - Mặc định
+    // Định dạng nhãn hiển thị cho model
     const highestFlashModelId = models.find((m) =>
       m.id.toLowerCase().includes("flash"),
     )?.id;
 
     models.forEach((m) => {
       const cleanName = m.displayName.replace(
-        /\s*\((Mới nhất - Mặc định|Khuyến nghị - Ổn định|Tải cao)\)/g,
+        /\s*\((Mới nhất - Mặc định|Khuyến nghị từ Google|Dự phòng ổn định|Tải cao)\)/g,
         "",
       );
       if (m.id === highestFlashModelId) {
         m.displayName = `${cleanName} (Mới nhất - Mặc định)`;
-      } else if (m.id === "gemini-2.0-flash") {
-        m.displayName = `${cleanName} (Khuyến nghị - Ổn định)`;
       } else if (m.id === "gemini-3.6-flash") {
-        m.displayName = `${cleanName} (Tải cao)`;
+        m.displayName = `${cleanName} (Khuyến nghị từ Google)`;
+      } else if (m.id === "gemini-1.5-flash") {
+        m.displayName = `${cleanName} (Dự phòng ổn định)`;
       } else {
         m.displayName = cleanName;
       }

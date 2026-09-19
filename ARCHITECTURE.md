@@ -73,19 +73,19 @@ sbe-assistant-pwa/
    - **Xử lý Request (Chế độ Kép):**
      - **Chế độ 1 - Đánh giá Kịch bản Gherkin:** Nhận `{ currentWeek, scenarioText, model }`. Ép kiểu JSON 5 khối (`message`, `analysis.learned_concepts`, `mistakes`, `best_scenario`, `recommendations`). Lưu đồng thời vào `Chat_History` và `Memory_Blocks` (D1).
      - **Chế độ 2 - Trò chuyện Tự do (Free-form Mentoring):** Nhận `{ currentWeek, message, model }`. Đọc lịch sử 4 lượt trao đổi gần nhất từ D1 làm giàu ngữ cảnh. Gọi Gemini API trả lời với vai trò SBE Mentor cố vấn sư phạm. Lưu tin nhắn người dùng và câu trả lời vào `Chat_History`.
-   - **Tương thích & Dự phòng Thích ứng:** Mặc định sử dụng model mới nhất `gemini-3.8-flash`. Nếu model người dùng chọn bị lỗi HTTP 503 (High Demand) hoặc HTTP 404 (chưa hỗ trợ trên tài khoản), backend tự động thử lại ngay lập tức với bản GA ổn định `gemini-2.0-flash`. Hỗ trợ biến môi trường `GEMINI_BASE_URL` (AI Gateway) và cơ chế bắt lỗi hạn chế địa lý `isLocationBlocked`.
+   - **Tương thích & Chuỗi Candidate Fallback:** Chuẩn hóa model đầu vào, tự động chuyển đổi nếu dính model cũ đã khai tử (`gemini-2.0-flash`, `gemini-2.5-flash`). Thiết lập chuỗi ưu tiên thực thi: `[chosenModel, 'gemini-3.6-flash', 'gemini-1.5-flash']`. Tự động retry với backoff 600ms khi gặp 503 spike demand, và chuyển tiếp candidate tiếp theo khi gặp 404/503. Hỗ trợ biến môi trường `GEMINI_BASE_URL` (AI Gateway) và cơ chế bắt lỗi hạn chế địa lý `isLocationBlocked`.
 
 2. **`functions/api/analyze.ts` (Edge RAG Analyzer & Progress Synthesizer):**
    - **Xử lý Request:** Nhận POST payload chứa `{ currentWeek, model }`.
    - **Truy vấn Cloudflare D1:** Đọc toàn bộ các bản ghi `Memory_Blocks` từ tuần 1 đến tuần hiện tại.
    - **Xử lý Empty State:** Nếu chưa có kịch bản nào được nộp, trả về thông báo hướng dẫn gửi kịch bản.
-   - **Tổng hợp Gemini RAG:** Gửi toàn bộ dữ liệu lịch sử cho mô hình đã chọn (mặc định `gemini-3.8-flash`) phân tích tổng quan, trích xuất các khái niệm đã làm chủ, lỗi sai lặp lại, kế hoạch hành động tiếp theo và chấm điểm mức độ sẵn sàng (`readiness_score: 0-100`). Tự động fallback sang `gemini-2.0-flash` nếu model gặp lỗi 503 hoặc 404.
+   - **Tổng hợp Gemini RAG & Chuỗi Fallback:** Gửi toàn bộ dữ liệu lịch sử cho mô hình đã chọn phân tích tổng quan, trích xuất các khái niệm đã làm chủ, lỗi sai lặp lại, kế hoạch hành động tiếp theo và chấm điểm mức độ sẵn sàng (`readiness_score: 0-100`). Bảo vệ toàn diện với chuỗi candidate fallback (`gemini-3.6-flash` -> `gemini-1.5-flash`) và retry backoff.
 
 3. **`functions/api/models.ts` (Edge Dynamic Gemini Models Discovery Provider):**
    - **Xử lý Request:** Nhận GET request tại `/api/models`.
    - **Truy vấn Google Generative Language API:** Gọi trực tiếp `GET https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}` để lấy danh sách models mới nhất từ Google.
-   - **Bộ lọc & Thuật toán Phiên bản Thông minh:** Tự động parse số phiên bản nổi (`extractVersion`), ưu tiên toàn bộ dòng `flash` và sắp xếp theo phiên bản giảm dần (3.8 > 3.6 > 2.5 > 2.0 > 1.5). Model có phiên bản Flash cao nhất tại thời điểm truy cập luôn được đưa lên đầu danh sách với nhãn `(Mới nhất - Mặc định)`.
-   - **Fallback Resiliency:** Nếu không có API Key hoặc mạng gặp sự cố, tự động trả về danh sách fallback an toàn (`gemini-3.8-flash`, `gemini-2.0-flash`, `gemini-2.5-flash`, `gemini-1.5-flash`, `gemini-3.6-flash`) với HTTP 200 kèm `defaultModel`.
+   - **Bộ lọc & Thuật toán Phiên bản Thông minh:** Tự động loại bỏ các model khai tử (`gemini-2.0-flash`, `gemini-2.5-flash`), parse số phiên bản nổi (`extractVersion`), ưu tiên toàn bộ dòng `flash` và sắp xếp theo phiên bản giảm dần. Model có phiên bản Flash cao nhất tại thời điểm truy cập luôn được đưa lên đầu danh sách với nhãn `(Mới nhất - Mặc định)`.
+   - **Fallback Resiliency:** Trả về danh sách an toàn (`gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`) với HTTP 200 kèm `defaultModel`.
 
 4. **`worker.ts` (Cloudflare Worker Core Gateway & Asset Router):**
    - Đóng vai trò ES Module entrypoint cho Cloudflare Worker.
@@ -94,16 +94,19 @@ sbe-assistant-pwa/
    - Bổ sung header CORS chuẩn (`Access-Control-Allow-Origin: *`, `Allow-Methods`, `Allow-Headers`).
    - Phục vụ static assets từ `env.ASSETS` cho các tài nguyên trình duyệt.
 
-5. **`public/index.html` (Split-Screen Workspace & Docking Layout):**
+5. **`public/index.html` (Split-Screen Workspace, Docking Layout & Gherkin Highlighting Overlay):**
    - Thiết kế 100vh không tràn màn hình: Khung lịch sử chat `.chat-history` và Khung soạn thảo kịch bản `.editor-textarea` sở hữu thanh cuộn độc lập (independent custom scrollbar).
+   - **Gherkin Syntax Highlighting Overlay:** Tích hợp bộ đôi `<pre id="gherkinHighlighting">` đè dưới `<textarea id="gherkinEditor">` với màu sắc chuẩn IDE (Feature, Scenario, Steps, String, Comment, Pipe).
    - Thiết kế Dock cố định ở chân trang:
-     - **Chat Dock (Trái):** Nhóm bộ chọn tuần `#weekSelector`, bộ chọn AI model `#modelSelector`, ô nhập tin nhắn `#chatInput`, nút gửi `#btnSendChat` và nút tổng kết `#btnRecall`. Khởi tạo mặc định với `gemini-3.8-flash`.
+     - **Chat Dock (Trái):** Nhóm bộ chọn tuần `#weekSelector`, bộ chọn AI model `#modelSelector`, ô nhập tin nhắn `#chatInput`, nút gửi `#btnSendChat` và nút tổng kết `#btnRecall`.
      - **Editor Dock (Phải):** Nhóm thông báo trạng thái tự lưu nháp và nút `#btnSendScenario`.
 
 6. **`src/index.ts` (Frontend Controller & Presentation Logic):**
-   - **Dynamic Model Selection:** Tự động gọi `/api/models` nạp vào thẻ dropdown `#modelSelector`. Khi người dùng truy cập hệ thống ở phiên mới, client tự động chọn phiên bản Gemini Flash mới nhất từ `defaultModel` làm giá trị mặc định. Nếu người dùng chọn model khác trong phiên, lựa chọn đó được lưu trong `sessionStorage`.
+   - **Gherkin Syntax Highlighter & Tab Handler:** Lắng nghe `input`, `scroll`, và `keydown` (phím Tab thụt 2 spaces) để highlight từ khóa tức thì theo thời gian thực và đồng bộ cuộn mượt mà.
+   - **Model Resolution & Sanitization:** Tự động dọn dẹp `localStorage` nếu còn dính model cũ; cung cấp hàm `getEffectiveModel()` dùng chung cho mọi hành động gửi yêu cầu (Chat, Scenario, Recall).
+   - **Dynamic Model Selection:** Tự động gọi `/api/models` nạp vào thẻ dropdown `#modelSelector`. Khi người dùng truy cập hệ thống ở phiên mới, client tự động chọn phiên bản Gemini Flash mới nhất từ `defaultModel`.
    - **Khôi phục & Lưu nháp:** Tự động nạp bản nháp từ `localStorage.getItem("sbe_draft")` khi khởi động; lắng nghe `input` trên editor để lưu tức thời.
-   - **Resizer Controller:** Lắng nghe sự kiện chuột (`mousedown`, `mousemove`, `mouseup`) trên thanh chia đôi `#dragMe`, giới hạn tỷ lệ co giãn từ 20% đến 80%, tạm thời vô hiệu hóa `pointer-events` trên các khung để tránh giật lag.
+   - **Resizer Controller:** Lắng nghe sự kiện chuột (`mousedown`, `mousemove`, `mouseup`) trên thanh chia đôi `#dragMe`, giới hạn tỷ lệ co giãn từ 20% đến 80%.
    - **Dispatcher & Renderer:** Gửi request đến `/api/chat` và `/api/analyze`, quản lý loading states trên các nút tương ứng.
    - **Recall Dashboard:** Render thẻ tóm tắt tiến trình học tập trực quan gồm điểm sẵn sàng, danh sách khái niệm nắm vững, lỗi cần khắc phục và kế hoạch hành động.
    - **PWA Lifecycle:** Đăng ký Service Worker `/sw.js` vào browser khi tải trang.
