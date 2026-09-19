@@ -1,6 +1,8 @@
 name = "sbe-assistant-pwa"
-pages_build_output_dir = "public"
 compatibility_date = "2026-09-17"
+
+[assets]
+directory = "./public"
 
 [[d1_databases]]
 binding = "DB"
