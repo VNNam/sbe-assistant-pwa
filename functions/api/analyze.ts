@@ -110,7 +110,15 @@ Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức
       throw new Error("Gemini không trả về nội dung hợp lệ.");
     }
 
-    const parsedRecall = JSON.parse(aiText);
+    // Làm sạch markdown code block (nếu có) trước khi parse JSON
+    let cleanedText = aiText.trim();
+    if (cleanedText.startsWith("```")) {
+      cleanedText = cleanedText
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/, "")
+        .trim();
+    }
+    const parsedRecall = JSON.parse(cleanedText);
 
     return new Response(
       JSON.stringify({

@@ -56,8 +56,20 @@ export async function onRequestPost(context) {
     }
 
     const geminiData = await geminiResponse.json();
-    const aiText = geminiData.candidates[0].content.parts[0].text;
-    const parsedAIResponse = JSON.parse(aiText);
+    const aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!aiText) {
+      throw new Error("Gemini không trả về nội dung hợp lệ.");
+    }
+
+    // Làm sạch markdown code block (nếu có) trước khi parse JSON
+    let cleanedText = aiText.trim();
+    if (cleanedText.startsWith("```")) {
+      cleanedText = cleanedText
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/, "")
+        .trim();
+    }
+    const parsedAIResponse = JSON.parse(cleanedText);
 
     // 3. Đóng gói dữ liệu Memory Block để lưu trữ
     const memoryBlock = {

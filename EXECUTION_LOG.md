@@ -126,20 +126,40 @@ Tại thời điểm bắt đầu phiên làm việc:
 
 ---
 
+### Giai đoạn 7: Khắc phục lỗi `API route not found`, CORS Preflight và JSON Parsing từ LLM
+
+- **Triệu chứng lỗi:**
+  1. Client gửi kịch bản nhận phản hồi: `{"error":"API route not found"}`.
+  2. Trực tiếp gọi API trả về: `{"error":"Lỗi máy chủ: Expected property name or '}' in JSON at position 1 (line 1 column 2)"}`.
+- **Nguyên nhân cốt lõi (Root Cause):**
+  1. Trong `worker.ts`, điều kiện định tuyến so khớp cứng `url.pathname === "/api/chat" && request.method === "POST"`. Khi browser gửi `OPTIONS` (CORS preflight) hoặc URL có dấu gạch chéo cuối (`/api/chat/`) hoặc phương thức khác `POST`, request bị rơi vào nhánh fallback trả về `404 API route not found`.
+  2. Gemini 2.5 Flash đôi khi bọc kết quả trong markdown code fence (`json\n...\n`), khiến lệnh `JSON.parse()` nguyên bản trong `chat.ts` và `analyze.ts` bị vỡ cú pháp.
+- **Giải pháp thực hiện:**
+  1. Cải tiến [`worker.ts`](./worker.ts):
+     - Chuẩn hóa URL, loại bỏ trailing slash (`url.pathname.replace(/\/+$/, "")`).
+     - Bổ sung xử lý CORS Preflight (`OPTIONS`) trả về HTTP 204 kèm headers `Access-Control-Allow-*`.
+     - Bao bọc mọi phản hồi API bằng helper `withCors()` để đảm bảo không bị chặn bởi chính sách cùng nguồn gốc.
+     - Trả về mã lỗi HTTP 405 (Method Not Allowed) rõ ràng nếu truy cập sai phương thức (ví dụ dùng `GET` trên trình duyệt).
+  2. Cải tiến [`functions/api/chat.ts`](./functions/api/chat.ts) và [`functions/api/analyze.ts`](./functions/api/analyze.ts):
+     - Thêm cơ chế tự động bóc tách và làm sạch markdown code fence trước khi gọi `JSON.parse()`.
+  3. Kiểm tra `wrangler deploy --dry-run`: Thành công, bundle đạt 12.21 KiB.
+
+---
+
 ## 3. Tổng hợp Thay đổi File (Matrix File Changes)
 
-| Tên File                                                 | Thao tác               | Mô tả thay đổi                                                                 |
-| :------------------------------------------------------- | :--------------------- | :----------------------------------------------------------------------------- |
-| [`worker.ts`](./worker.ts)                               | **Tạo mới**            | Cloudflare Worker ES Module entrypoint định tuyến API và phục vụ static assets.|
-| [`wrangler.jsonc`](./wrangler.jsonc)                     | **Chỉnh sửa**          | Trỏ `"main": "./worker.ts"` thay vì file browser sw.js.                       |
-| [`ARCHITECTURE.md`](./ARCHITECTURE.md)                   | **Tạo mới & Cập nhật** | Tài liệu kiến trúc toàn diện kèm 2 sơ đồ Mermaid.js và lộ trình phát triển.    |
-| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Tạo mới & Cập nhật** | Nhật ký thực hiện toàn bộ tiến trình để phục vụ tra cứu sau này.               |
-| [`package.json`](./package.json)                         | **Chỉnh sửa**          | Sửa script `"build": "tsc"` loại bỏ lệnh `mv` phụ thuộc nền tảng.              |
-| [`public/sw.js`](./public/sw.js)                         | **Tạo mới**            | Đặt Service Worker đúng thư mục gốc Web Root của Cloudflare Pages.             |
-| [`public/js/sw.js`](./public/js/sw.js)                   | **Xóa bỏ**             | Loại bỏ file thừa để tránh nhầm lẫn cấu trúc.                                  |
-| [`functions/api/analyze.ts`](./functions/api/analyze.ts) | **Tạo mới**            | Edge Function xử lý RAG: đọc D1 `Memory_Blocks` và gọi Gemini 2.5 Flash.       |
-| [`src/index.ts`](./src/index.ts)                         | **Chỉnh sửa**          | Tích hợp sự kiện gọi `/api/analyze` và render Dashboard Recall vào khung chat. |
-| [`public/js/index.js`](./public/js/index.js)             | **Biên dịch tự động**  | File JavaScript chạy ở trình duyệt được sinh từ `src/index.ts`.                |
+| Tên File                                                 | Thao tác               | Mô tả thay đổi                                                                  |
+| :------------------------------------------------------- | :--------------------- | :------------------------------------------------------------------------------ |
+| [`worker.ts`](./worker.ts)                               | **Tạo mới**            | Cloudflare Worker ES Module entrypoint định tuyến API và phục vụ static assets. |
+| [`wrangler.jsonc`](./wrangler.jsonc)                     | **Chỉnh sửa**          | Trỏ `"main": "./worker.ts"` thay vì file browser sw.js.                         |
+| [`ARCHITECTURE.md`](./ARCHITECTURE.md)                   | **Tạo mới & Cập nhật** | Tài liệu kiến trúc toàn diện kèm 2 sơ đồ Mermaid.js và lộ trình phát triển.     |
+| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Tạo mới & Cập nhật** | Nhật ký thực hiện toàn bộ tiến trình để phục vụ tra cứu sau này.                |
+| [`package.json`](./package.json)                         | **Chỉnh sửa**          | Sửa script `"build": "tsc"` loại bỏ lệnh `mv` phụ thuộc nền tảng.               |
+| [`public/sw.js`](./public/sw.js)                         | **Tạo mới**            | Đặt Service Worker đúng thư mục gốc Web Root của Cloudflare Pages.              |
+| [`public/js/sw.js`](./public/js/sw.js)                   | **Xóa bỏ**             | Loại bỏ file thừa để tránh nhầm lẫn cấu trúc.                                   |
+| [`functions/api/analyze.ts`](./functions/api/analyze.ts) | **Tạo mới**            | Edge Function xử lý RAG: đọc D1 `Memory_Blocks` và gọi Gemini 2.5 Flash.        |
+| [`src/index.ts`](./src/index.ts)                         | **Chỉnh sửa**          | Tích hợp sự kiện gọi `/api/analyze` và render Dashboard Recall vào khung chat.  |
+| [`public/js/index.js`](./public/js/index.js)             | **Biên dịch tự động**  | File JavaScript chạy ở trình duyệt được sinh từ `src/index.ts`.                 |
 
 ---
 
