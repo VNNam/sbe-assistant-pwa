@@ -5,6 +5,9 @@
   "assets": {
     "directory": "./public/",
   },
+  "placement": {
+    "region": "gcp:us-central1",
+  },
   "d1_databases": [
     {
       "binding": "DB",

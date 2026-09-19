@@ -1,5 +1,6 @@
 import { onRequestPost as handleChat } from "./functions/api/chat";
 import { onRequestPost as handleAnalyze } from "./functions/api/analyze";
+import { onRequestGet as handleModels } from "./functions/api/models";
 
 export interface Env {
   DB: any;
@@ -106,7 +107,27 @@ export default {
       }
     }
 
-    // 4. Bắt tất cả các route /api/* không hợp lệ khác
+    // 4. Định tuyến API /api/models (Lấy danh sách Gemini models động)
+    if (pathname === "/api/models") {
+      try {
+        const res = await handleModels({ request, env });
+        return withCors(res);
+      } catch (err: any) {
+        return withCors(
+          new Response(
+            JSON.stringify({
+              error: "Lỗi lấy danh sách models: " + err.message,
+            }),
+            {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+    }
+
+    // 5. Bắt tất cả các route /api/* không hợp lệ khác
     if (pathname.startsWith("/api/")) {
       return withCors(
         new Response(

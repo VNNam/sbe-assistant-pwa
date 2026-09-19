@@ -4,6 +4,7 @@ export async function onRequestPost(context: any) {
   try {
     const payload = await request.json().catch(() => ({}));
     const currentWeek = parseInt(payload.currentWeek, 10) || 1;
+    const chosenModel = payload.model || "gemini-3.6-flash";
 
     const apiKey = env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -86,7 +87,10 @@ Hãy phân tích toàn diện lịch sử học tập trên và trả về kết
 Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức độ thành thạo và sẵn sàng áp dụng SBE vào dự án thực tế.`;
 
     // 4. Gọi Gemini REST API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
+    const baseUrl = (
+      env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com"
+    ).replace(/\/+$/, "");
+    const geminiUrl = `${baseUrl}/v1beta/models/${chosenModel}:generateContent?key=${apiKey}`;
     const geminiResponse = await fetch(geminiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -101,7 +105,28 @@ Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức
 
     if (!geminiResponse.ok) {
       const errText = await geminiResponse.text();
-      throw new Error(`Gemini API Error: ${errText}`);
+      const colo = request.cf?.colo || "Local";
+      if (
+        errText.includes("User location is not supported") ||
+        errText.includes("FAILED_PRECONDITION")
+      ) {
+        console.error(
+          `[Gemini Location Blocked in Recall] Colo: ${colo}, Error: ${errText}`,
+        );
+        return new Response(
+          JSON.stringify({
+            error:
+              "Vị trí máy chủ chưa được Google Gemini API hỗ trợ (User location is not supported).",
+            detail: `Cloudflare Edge Node đang thực thi tại trạm '${colo}'. Dự án đã bật cấu hình placement: { region: 'gcp:us-central1' } trong wrangler.jsonc. Hãy deploy bản mới nhất lên Cloudflare hoặc cấu hình GEMINI_BASE_URL (Cloudflare AI Gateway) để tự động chuyển tiếp qua Hoa Kỳ.`,
+            isLocationBlocked: true,
+            colo: colo,
+          }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      throw new Error(
+        `Gemini API Error (${geminiResponse.status}): ${errText}`,
+      );
     }
 
     const geminiData = await geminiResponse.json();

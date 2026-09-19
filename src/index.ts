@@ -1,6 +1,7 @@
 interface ScenarioPayload {
   currentWeek: number;
   scenarioText: string;
+  model?: string;
 }
 
 const btnSend = document.getElementById("btnSendScenario") as HTMLButtonElement;
@@ -11,6 +12,9 @@ const gherkinEditor = document.getElementById(
 const chatHistory = document.getElementById("chatHistory") as HTMLDivElement;
 const weekSelector = document.getElementById(
   "weekSelector",
+) as HTMLSelectElement;
+const modelSelector = document.getElementById(
+  "modelSelector",
 ) as HTMLSelectElement;
 
 // Tự động khôi phục bản nháp từ LocalStorage khi mở lại web
@@ -23,6 +27,55 @@ if (savedDraft) {
 gherkinEditor.addEventListener("input", () => {
   localStorage.setItem("sbe_draft", gherkinEditor.value);
 });
+
+// Tải danh sách model Gemini khả dụng từ backend
+async function loadAvailableModels() {
+  if (!modelSelector) return;
+  const savedModel =
+    localStorage.getItem("sbe_selected_model") || "gemini-3.6-flash";
+
+  try {
+    const res = await fetch("/api/models");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const models: Array<{ id: string; displayName: string }> =
+      data.models || [];
+
+    if (models.length > 0) {
+      modelSelector.innerHTML = "";
+      models.forEach((m) => {
+        const opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = m.displayName || m.id;
+        if (m.id === savedModel) {
+          opt.selected = true;
+        }
+        modelSelector.appendChild(opt);
+      });
+
+      // Nếu model lưu trước đó không tồn tại trong danh sách mới, chọn model đầu tiên
+      if (!models.some((m) => m.id === savedModel)) {
+        modelSelector.value = models[0].id;
+        localStorage.setItem("sbe_selected_model", models[0].id);
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "Không thể tải danh sách model động từ /api/models, dùng model dự phòng:",
+      err,
+    );
+    modelSelector.value = savedModel;
+  }
+}
+
+if (modelSelector) {
+  modelSelector.addEventListener("change", () => {
+    localStorage.setItem("sbe_selected_model", modelSelector.value);
+  });
+}
+
+// Khởi chạy nạp danh sách model
+loadAvailableModels();
 
 function appendMessage(sender: string, htmlContent: string, isSystem = false) {
   const msgElement = document.createElement("div");
@@ -49,9 +102,15 @@ btnSend.addEventListener("click", async () => {
     `<pre style="background: #f4f4f4; padding: 8px; border-radius: 4px;">${text}</pre>`,
   );
 
+  const selectedModel =
+    modelSelector?.value ||
+    localStorage.getItem("sbe_selected_model") ||
+    "gemini-3.6-flash";
+
   const payload: ScenarioPayload = {
     currentWeek: currentWeek,
     scenarioText: text,
+    model: selectedModel,
   };
 
   try {
@@ -64,6 +123,22 @@ btnSend.addEventListener("click", async () => {
     if (!response.ok) {
       if (response.status === 503) throw new Error("OFFLINE");
       const errJson = await response.json().catch(() => ({}));
+      if (
+        errJson.isLocationBlocked ||
+        (errJson.error &&
+          (errJson.error.includes("location") ||
+            errJson.error.includes("Vị trí máy chủ")))
+      ) {
+        const locationWarningHtml = `
+          <div style="background: #fff3cd; color: #856404; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px;">
+            <strong>⚠ Hạn chế Địa lý từ Google Gemini API:</strong>
+            <p style="margin: 6px 0;">${errJson.error}</p>
+            <p style="margin: 4px 0; font-size: 13px; color: #664d03;">${errJson.detail || "Cloudflare Edge Node đang ở vùng bị Google chặn. Dự án đã kích hoạt cấu hình placement trong wrangler.jsonc."}</p>
+          </div>
+        `;
+        appendMessage("Hệ thống", locationWarningHtml, true);
+        return;
+      }
       throw new Error(errJson.error || `Lỗi máy chủ (${response.status})`);
     }
 
@@ -118,12 +193,17 @@ btnSend.addEventListener("click", async () => {
 
 btnRecall.addEventListener("click", async () => {
   const currentWeek = parseInt(weekSelector.value, 10) || 1;
+  const selectedModel =
+    modelSelector?.value ||
+    localStorage.getItem("sbe_selected_model") ||
+    "gemini-3.6-flash";
+
   btnRecall.disabled = true;
   btnRecall.textContent = "Đang tổng kết...";
 
   appendMessage(
     "Hệ thống",
-    `Đang trích xuất dữ liệu từ <em>Memory_Blocks</em> và tiến hành phân tích tiến trình học tập cho Tuần ${currentWeek}...`,
+    `Đang trích xuất dữ liệu từ <em>Memory_Blocks</em> và tiến hành phân tích tiến trình học tập cho Tuần ${currentWeek} (Mô hình: ${selectedModel})...`,
     false,
   );
 
@@ -131,12 +211,28 @@ btnRecall.addEventListener("click", async () => {
     const response = await fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ currentWeek }),
+      body: JSON.stringify({ currentWeek, model: selectedModel }),
     });
 
     if (!response.ok) {
       if (response.status === 503) throw new Error("OFFLINE");
       const errJson = await response.json().catch(() => ({}));
+      if (
+        errJson.isLocationBlocked ||
+        (errJson.error &&
+          (errJson.error.includes("location") ||
+            errJson.error.includes("Vị trí máy chủ")))
+      ) {
+        const locationWarningHtml = `
+          <div style="background: #fff3cd; color: #856404; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px;">
+            <strong>⚠ Hạn chế Địa lý từ Google Gemini API:</strong>
+            <p style="margin: 6px 0;">${errJson.error}</p>
+            <p style="margin: 4px 0; font-size: 13px; color: #664d03;">${errJson.detail || "Cloudflare Edge Node đang ở vùng bị Google chặn. Dự án đã kích hoạt cấu hình placement trong wrangler.jsonc."}</p>
+          </div>
+        `;
+        appendMessage("Hệ thống", locationWarningHtml, true);
+        return;
+      }
       throw new Error(errJson.error || `Lỗi máy chủ (${response.status})`);
     }
 

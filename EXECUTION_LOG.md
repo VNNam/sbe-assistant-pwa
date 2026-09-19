@@ -214,20 +214,78 @@ Tại thời điểm bắt đầu phiên làm việc:
 
 ---
 
+### Giai đoạn 11: Phát triển Tính năng Lựa chọn Mô hình Gemini API Động (Dynamic Models Discovery & Selection)
+
+- **Vấn đề & Bối cảnh:**
+  - Sau sự cố Google ngừng hỗ trợ `gemini-2.5-flash` và yêu cầu chuyển sang `gemini-3.6-flash`, việc hardcode tên model trong mã nguồn tiềm ẩn rủi ro hỏng hóc khi Google tiếp tục phát hành hoặc deprecate model trong tương lai.
+  - Người học cần quyền chủ động lựa chọn model (ví dụ: `gemini-3.6-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`...) trực tiếp trên giao diện để so sánh kết quả và chi phí.
+- **Phương án Kỹ thuật Thực hiện:**
+  1. **Backend Discovery Endpoint ([`functions/api/models.ts`](./functions/api/models.ts)):**
+     - Đón nhận `GET /api/models`.
+     - Sử dụng API Key từ môi trường Cloudflare gọi `GET https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`.
+     - Lọc dữ liệu: chỉ lấy model hỗ trợ `generateContent`, chứa từ khóa `gemini`, loại bỏ model vision/embedding không phù hợp.
+     - Sắp xếp: đưa `gemini-3.6-flash` lên đầu tiên kèm nhãn `(Khuyến nghị)`.
+     - Dự phòng (Fallback): nếu chưa cấu hình key hoặc mạng lỗi, trả về danh sách fallback an toàn không làm sập giao diện.
+  2. **Worker Routing ([`worker.ts`](./worker.ts)):**
+     - Mở route `GET /api/models` chuyển tiếp đến `handleModels(context)` bọc sẵn CORS và HTTPS redirect.
+  3. **Backend Handlers ([`functions/api/chat.ts`](./functions/api/chat.ts) & [`functions/api/analyze.ts`](./functions/api/analyze.ts)):**
+     - Đọc `payload.model` gửi từ client; nếu không có, fallback về `gemini-3.6-flash`.
+     - Gọi Google API theo đúng model được người dùng chỉ định.
+  4. **Giao diện Người dùng ([`public/index.html`](./public/index.html)):**
+     - Bổ sung dropdown `<select id="modelSelector">` cạnh `#weekSelector` trong thanh công cụ chat.
+  5. **Client Scripting ([`src/index.ts`](./src/index.ts)):**
+     - Viết hàm `loadAvailableModels()` nạp danh sách model động từ `/api/models`.
+     - Lưu lựa chọn vào `localStorage.getItem("sbe_selected_model")` để ghi nhớ qua các phiên duyệt web.
+     - Gửi kèm `model` trong request body của cả hai hành động: "Gửi Kịch bản" (`/api/chat`) và "Tổng kết" (`/api/analyze`).
+- **Kết quả Kiểm thử:**
+  - `npm run build` biên dịch `src/index.ts` sang `public/js/index.js` thành công (exit code 0).
+  - `npx wrangler deploy --dry-run` xác thực Worker bundle và static assets thành công hoàn toàn.
+
+---
+
+### Giai đoạn 12: Khắc phục Triệt để Lỗi Địa lý "User location is not supported for the API use" (Code 400, FAILED_PRECONDITION)
+
+- **Hiện tượng & Nguyên nhân gốc rễ:**
+  - Khi gửi kịch bản từ Việt Nam, hệ thống báo lỗi:
+    `{ "error": { "code": 400, "message": "User location is not supported for the API use.", "status": "FAILED_PRECONDITION" } }`.
+  - Mặc dù Việt Nam nằm trong danh sách các quốc gia được Google Gemini API hỗ trợ chính thức, mạng Cloudflare Worker chạy phân tán theo Anycast. Đối với người dùng tại Việt Nam, lưu lượng truy cập qua cáp biển thường được Cloudflare điều hướng đến trung tâm dữ liệu tại **Hồng Kông (HKG)**.
+  - Google Gemini API áp dụng quy tắc kiểm tra IP máy chủ thực hiện cuộc gọi (`egress IP`), và **Hồng Kông là khu vực bị Google hạn chế**. Do đó, yêu cầu xuất phát từ Worker tại HKG bị từ chối ngay lập tức.
+- **Phương án Kỹ thuật Triệt để Đã Triển khai:**
+  1. **Ép buộc Vùng Thực thi của Worker qua Placement Hint ([`wrangler.jsonc`](./wrangler.jsonc)):**
+     - Bổ sung cấu hình:
+       ```jsonc
+       "placement": {
+         "region": "gcp:us-central1"
+       }
+       ```
+     - Chỉ thị này yêu cầu Cloudflare chạy Worker tại các trung tâm dữ liệu ở Hoa Kỳ gần cụm Google Cloud US-Central (Iowa). Khi Worker gửi request outbound tới `generativelanguage.googleapis.com`, IP của máy chủ là IP Hoa Kỳ, được Google chấp nhận 100%.
+  2. **Hỗ trợ Đổi Điểm cuối API / AI Gateway qua Biến môi trường ([`functions/api/chat.ts`](./functions/api/chat.ts), [`functions/api/analyze.ts`](./functions/api/analyze.ts), [`functions/api/models.ts`](./functions/api/models.ts)):**
+     - Đọc biến môi trường `env.GEMINI_BASE_URL` (mặc định: `https://generativelanguage.googleapis.com`).
+     - Cho phép quản trị viên tự do định tuyến qua Cloudflare AI Gateway, OpenRouter hoặc Reverse Proxy riêng mà không cần sửa code.
+  3. **Bắt lỗi Thông minh & Cảnh báo Trực quan ([`src/index.ts`](./src/index.ts)):**
+     - Backend phát hiện lỗi địa lý, ghi log vị trí PoP (`request.cf?.colo`) và trả về flag `isLocationBlocked: true`.
+     - Frontend bắt lỗi và hiển thị khung cảnh báo màu vàng chuyên nghiệp kèm giải thích nguyên nhân và hướng dẫn, thay vì báo lỗi máy chủ chung chung.
+- **Kết quả Kiểm thử:**
+  - `npm run build` thành công, biên dịch `public/js/index.js` chuẩn xác.
+  - `npx wrangler deploy --dry-run` thành công 100%, xác thực khối `placement` được Wrangler công nhận và đóng gói hợp lệ.
+
+---
+
 ## 3. Tổng hợp Thay đổi File (Matrix File Changes)
 
-| Tên File                                                 | Thao tác               | Mô tả thay đổi                                                                  |
-| :------------------------------------------------------- | :--------------------- | :------------------------------------------------------------------------------ |
-| [`worker.ts`](./worker.ts)                               | **Tạo mới**            | Cloudflare Worker ES Module entrypoint định tuyến API và phục vụ static assets. |
-| [`wrangler.jsonc`](./wrangler.jsonc)                     | **Chỉnh sửa**          | Trỏ `"main": "./worker.ts"` thay vì file browser sw.js.                         |
-| [`ARCHITECTURE.md`](./ARCHITECTURE.md)                   | **Tạo mới & Cập nhật** | Tài liệu kiến trúc toàn diện kèm 2 sơ đồ Mermaid.js và lộ trình phát triển.     |
-| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Tạo mới & Cập nhật** | Nhật ký thực hiện toàn bộ tiến trình để phục vụ tra cứu sau này.                |
-| [`package.json`](./package.json)                         | **Chỉnh sửa**          | Sửa script `"build": "tsc"` loại bỏ lệnh `mv` phụ thuộc nền tảng.               |
-| [`public/sw.js`](./public/sw.js)                         | **Tạo mới**            | Đặt Service Worker đúng thư mục gốc Web Root của Cloudflare Pages.              |
-| [`public/js/sw.js`](./public/js/sw.js)                   | **Xóa bỏ**             | Loại bỏ file thừa để tránh nhầm lẫn cấu trúc.                                   |
-| [`functions/api/analyze.ts`](./functions/api/analyze.ts) | **Tạo mới**            | Edge Function xử lý RAG: đọc D1 `Memory_Blocks` và gọi Gemini 2.5 Flash.        |
-| [`src/index.ts`](./src/index.ts)                         | **Chỉnh sửa**          | Tích hợp sự kiện gọi `/api/analyze` và render Dashboard Recall vào khung chat.  |
-| [`public/js/index.js`](./public/js/index.js)             | **Biên dịch tự động**  | File JavaScript chạy ở trình duyệt được sinh từ `src/index.ts`.                 |
+| Tên File                                                 | Thao tác              | Mô tả thay đổi                                                                   |
+| :------------------------------------------------------- | :-------------------- | :------------------------------------------------------------------------------- |
+| [`wrangler.jsonc`](./wrangler.jsonc)                     | **Chỉnh sửa**         | Thêm `"placement": { "region": "gcp:us-central1" }` ép Worker chạy tại Mỹ.       |
+| [`functions/api/chat.ts`](./functions/api/chat.ts)       | **Chỉnh sửa**         | Hỗ trợ `GEMINI_BASE_URL`, bắt lỗi địa lý và log Cloudflare colo.                 |
+| [`functions/api/analyze.ts`](./functions/api/analyze.ts) | **Chỉnh sửa**         | Hỗ trợ `GEMINI_BASE_URL`, bắt lỗi địa lý và log Cloudflare colo.                 |
+| [`functions/api/models.ts`](./functions/api/models.ts)   | **Chỉnh sửa**         | Hỗ trợ `GEMINI_BASE_URL`, cảnh báo nhẹ nhàng khi danh sách model bị chặn địa lý. |
+| [`src/index.ts`](./src/index.ts)                         | **Chỉnh sửa**         | Xử lý `isLocationBlocked`, hiển thị hộp thoại hướng dẫn chi tiết trên giao diện. |
+| [`public/js/index.js`](./public/js/index.js)             | **Biên dịch tự động** | JavaScript phân phối trình duyệt sau khi chạy `npm run build`.                   |
+| [`ARCHITECTURE.md`](./ARCHITECTURE.md)                   | **Cập nhật**          | Ghi nhận cơ chế Geo-restriction & Placement hints trong tài liệu kiến trúc.      |
+| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Cập nhật**          | Ghi nhận Giai đoạn 12 và cập nhật ma trận file thay đổi.                         |
+| [`worker.ts`](./worker.ts)                               | **Chỉnh sửa**         | Cloudflare Worker ES Module entrypoint: bổ sung routing `/api/models` và CORS.   |
+| [`public/index.html`](./public/index.html)               | **Chỉnh sửa**         | Thêm dropdown `#modelSelector` cho phép người dùng chọn mô hình Gemini.          |
+| [`public/sw.js`](./public/sw.js)                         | **Chỉnh sửa**         | Service Worker v3 an toàn, bypass `/api/*` và fix lỗi `clone()` stream.          |
 
 ---
 

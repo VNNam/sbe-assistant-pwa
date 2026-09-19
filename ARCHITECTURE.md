@@ -31,8 +31,8 @@
 | **Client / Presentation**     | HTML5, CSS Grid/Flexbox                                                         | Giao diện Split-Screen 3 cột (Chatbox 60% - Thanh kéo chia đôi - Gherkin Editor 40%), không dùng framework nặng để tối ưu tốc độ tải trang. |
 | **Client Scripting**          | TypeScript (`ES2020`, `module: ESNext`)                                         | Đảm bảo Type Safety cho Data Payload, bắt sự kiện DOM, tương tác `localStorage` và fetch API.                                               |
 | **Offline & PWA**             | Service Worker (`Cache-First` + `Network-First API fallback`), Web App Manifest | Cài đặt ứng dụng lên Home Screen thiết bị (standalone), cache shell tĩnh, bắt ngoại lệ mạng khi gọi API.                                    |
-| **Edge Compute / Serverless** | Cloudflare Pages Functions                                                      | Runtime V8 Isolate siêu nhẹ trên Edge, không có cold-start, đóng vai trò API Gateway xử lý endpoint `/api/chat`.                            |
-| **AI / LLM Engine**           | Google Gemini 3.6 Flash (`gemini-3.6-flash`)                                    | Nhiệt độ thấp (`temperature: 0.2`), ép kiểu cấu trúc đầu ra JSON (`response_mime_type: "application/json"`).                                |
+| **Edge Compute / Serverless** | Cloudflare Pages Functions / Worker                                             | Runtime V8 Isolate siêu nhẹ trên Edge, không có cold-start, xử lý các endpoint `/api/chat`, `/api/analyze`, `/api/models`.                  |
+| **AI / LLM Engine**           | Google Gemini API (Mặc định: `gemini-3.6-flash`, Dynamic Model Switcher)        | Tự động cập nhật danh sách model từ Google List Models API, ép kiểu cấu trúc JSON (`response_mime_type: "application/json"`).               |
 | **Database / Persistence**    | Cloudflare D1 (Distributed SQLite)                                              | Cơ sở dữ liệu quan hệ phân tán tại Edge, lưu trữ `Chat_History` và `Memory_Blocks`.                                                         |
 | **CI/CD & DevOps**            | Cloudflare Pages Native CI/CD + Wrangler CLI                                    | Tự động build từ Git repository (`npm run build`), deploy tự động ra môi trường production.                                                 |
 
@@ -47,21 +47,23 @@ sbe-assistant-pwa/
 ├── functions/                     # Backend Serverless chạy trên Cloudflare Pages Functions
 │   └── api/
 │       ├── chat.ts                # Edge Handler: tiếp nhận kịch bản, gọi Gemini API, ghi D1
-│       └── analyze.ts             # Edge Handler (RAG): trích xuất Memory_Blocks, tổng hợp tiến độ học
+│       ├── analyze.ts             # Edge Handler (RAG): trích xuất Memory_Blocks, tổng hợp tiến độ học
+│       └── models.ts              # Edge Handler: truy vấn danh sách Gemini models hiện hành từ Google API
 ├── public/                        # Thư mục đích phân phối tĩnh (Web Root của Pages)
-│   ├── index.html                 # Giao diện chính: Split-Screen Layout, Chatbox & Editor
+│   ├── index.html                 # Giao diện chính: Split-Screen Layout, Chatbox, Model Selector & Editor
 │   ├── manifest.json              # Khai báo Metadata PWA (icons, theme_color, display standalone)
 │   ├── sw.js                      # Service Worker xử lý Cache Storage & bắt lỗi Offline
 │   └── js/
 │       └── index.js               # Mã nguồn JS được biên dịch từ src/index.ts
 ├── src/                           # Mã nguồn Frontend TypeScript
-│   └── index.ts                   # Logic xử lý sự kiện giao diện, kéo thả resizer, gọi API, auto-save
+│   └── index.ts                   # Logic xử lý sự kiện giao diện, kéo thả resizer, nạp model động, auto-save
+├── worker.ts                      # Cloudflare Worker ES module entrypoint (routing API & Assets)
 ├── .dev.vars                      # Biến môi trường local (chứa GEMINI_API_KEY, đã gitignore)
 ├── .gitignore                     # Bỏ qua node_modules, .dev.vars, build cache
 ├── package.json                   # Định nghĩa dependencies, scripts build và dev
 ├── schema.sql                     # Khởi tạo lược đồ DDL cho Cloudflare D1
 ├── tsconfig.json                  # Cấu hình TypeScript Compiler (ESNext, outDir: ./public/js)
-├── wrangler.toml                  # Cấu hình Cloudflare Pages, Assets directory & D1 Database Binding
+├── wrangler.jsonc                 # Cấu hình Cloudflare Worker/Pages, Assets directory & D1 Database Binding
 └── SBE-Assistant-Master-Document.md # Tài liệu tổng hợp kiến trúc và lộ trình gốc
 ```
 
@@ -77,33 +79,48 @@ sbe-assistant-pwa/
    - **Xử lý lỗi:** Bắt lỗi kết nối, trả mã trạng thái HTTP chuẩn kèm thông điệp lỗi JSON.
 
 2. **`functions/api/analyze.ts` (Edge RAG Analyzer & Progress Synthesizer):**
-   - **Xử lý Request:** Nhận POST payload chứa `{ currentWeek }`.
+   - **Xử lý Request:** Nhận POST payload chứa `{ currentWeek, model }`.
    - **Truy vấn Cloudflare D1:** Đọc toàn bộ các bản ghi `Memory_Blocks` từ tuần 1 đến tuần hiện tại.
    - **Xử lý Empty State:** Nếu chưa có kịch bản nào được nộp, trả về thông báo hướng dẫn gửi kịch bản.
-   - **Tổng hợp Gemini RAG:** Gửi toàn bộ dữ liệu lịch sử cho Gemini 2.5 Flash phân tích tổng quan, trích xuất các khái niệm đã làm chủ, lỗi sai lặp lại, kế hoạch hành động tiếp theo và chấm điểm mức độ sẵn sàng (`readiness_score: 0-100`).
+   - **Tổng hợp Gemini RAG:** Gửi toàn bộ dữ liệu lịch sử cho mô hình đã chọn (mặc định `gemini-3.6-flash`) phân tích tổng quan, trích xuất các khái niệm đã làm chủ, lỗi sai lặp lại, kế hoạch hành động tiếp theo và chấm điểm mức độ sẵn sàng (`readiness_score: 0-100`).
 
-3. **`src/index.ts` (Frontend Controller & Presentation Logic):**
+3. **`functions/api/models.ts` (Edge Dynamic Gemini Models Discovery Provider):**
+   - **Xử lý Request:** Nhận GET request tại `/api/models`.
+   - **Truy vấn Google Generative Language API:** Gọi trực tiếp `GET https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}` để lấy danh sách models mới nhất từ Google.
+   - **Bộ lọc & Sắp xếp thông minh:** Lọc các model thuộc họ `gemini` hỗ trợ `generateContent` (loại bỏ vision/embedding riêng biệt), ưu tiên đưa `gemini-3.6-flash` lên đầu làm model khuyến nghị mặc định.
+   - **Fallback Resiliency:** Nếu không có API Key hoặc mạng gặp sự cố, tự động trả về danh sách fallback an toàn (`gemini-3.6-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`) với HTTP 200 kèm cảnh báo mềm.
+
+4. **`worker.ts` (Cloudflare Worker Core Gateway & Asset Router):**
+   - Đóng vai trò ES Module entrypoint cho Cloudflare Worker.
+   - Bắt buộc giao thức HTTPS (HTTP 308 Permanent Redirect) để bảo vệ toàn vẹn POST method và request body.
+   - Điều phối định tuyến API: `/api/chat`, `/api/analyze`, `/api/models`.
+   - Bổ sung header CORS chuẩn (`Access-Control-Allow-Origin: *`, `Allow-Methods`, `Allow-Headers`).
+   - Phục vụ static assets từ `env.ASSETS` cho các tài nguyên trình duyệt.
+
+5. **`src/index.ts` (Frontend Controller & Presentation Logic):**
+   - **Dynamic Model Selection:** Tự động gọi `/api/models` nạp vào thẻ dropdown `#modelSelector`, ghi nhớ model đã chọn vào `localStorage.getItem("sbe_selected_model")`, truyền model vào các request `/api/chat` và `/api/analyze`.
    - **Khôi phục & Lưu nháp:** Tự động nạp bản nháp từ `localStorage.getItem("sbe_draft")` khi khởi động; lắng nghe `input` trên editor để lưu tức thời.
    - **Resizer Controller:** Lắng nghe sự kiện chuột (`mousedown`, `mousemove`, `mouseup`) trên thanh chia đôi `#dragMe`, giới hạn tỷ lệ co giãn từ 20% đến 80%, tạm thời vô hiệu hóa `pointer-events` trên các khung để tránh giật lag.
    - **Dispatcher & Renderer:** Gửi request đến `/api/chat` và `/api/analyze`, quản lý loading states trên các nút tương ứng.
    - **Recall Dashboard:** Render thẻ tóm tắt tiến trình học tập trực quan gồm điểm sẵn sàng, danh sách khái niệm nắm vững, lỗi cần khắc phục và kế hoạch hành động.
    - **PWA Lifecycle:** Đăng ký Service Worker `/sw.js` vào browser khi tải trang.
 
-4. **`public/index.html` (Application Shell & UI Layout):**
-   - Sử dụng CSS Grid 3 cột (`60% 5px 1fr`) tạo bố cục 2 vùng làm việc song song: bên trái là khung trao đổi với AI Mentor kèm bộ lọc tuần (`weekSelector`) và nút "Tổng kết (Recall)"; bên phải là workspace viết Gherkin Editor.
+6. **`public/index.html` (Application Shell & UI Layout):**
+   - Sử dụng CSS Grid 3 cột (`60% 5px 1fr`) tạo bố cục 2 vùng làm việc song song: bên trái là khung trao đổi với AI Mentor kèm bộ lọc tuần (`weekSelector`), bộ chọn model AI (`modelSelector`) và nút "Tổng kết (Recall)"; bên phải là workspace viết Gherkin Editor.
+   - Tích hợp script auto-redirect HTTP sang HTTPS ngay tại `<head>` để bảo toàn POST payloads.
    - Liên kết Web App Manifest phục vụ khả năng Add to Home Screen.
 
-5. **`public/sw.js` (Offline Cache & Network Proxy):**
+7. **`public/sw.js` (Offline Cache & Network Proxy - v3):**
    - Định vị trực tiếp tại Web Root (`public/sw.js`) để đảm bảo scope đăng ký `/` toàn vẹn.
    - Chiến lược **Cache-First** đối với các static assets cơ bản (`/`, `/index.html`, `/js/index.js`, `/manifest.json`).
-   - Chiến lược **Network-First with Graceful Fallback** cho các route API `/api/*`: nếu mất mạng, trả về `Response` giả lập HTTP 503 (`{ error: "Ngoại tuyến" }`) giúp frontend hiển thị thông báo dịu mắt thay vì vỡ giao diện.
+   - Sửa lỗi body consumption: chỉ clone `Response` an toàn khi request là GET thành công và hoàn toàn bypass đối với route `/api/*`.
 
-6. **`schema.sql` (Edge Database Data Definition Language):**
+8. **`schema.sql` (Edge Database Data Definition Language):**
    - `Chat_History`: Lưu trữ hội thoại chi tiết gồm `week_id`, `role` (`user` | `model`), `content`, `created_at`.
    - `Memory_Blocks`: Lưu trữ thực thể RAG gồm `week_id`, `summary_json` (chứa các mảng concepts, mistakes, best scenario, recommendations), `created_at`.
 
-7. **`wrangler.toml` (Cloudflare Infrastructure as Code):**
-   - Cấu hình Assets directory trỏ vào `./public`.
+9. **`wrangler.jsonc` (Cloudflare Infrastructure as Code):**
+   - Cấu hình `"main": "./worker.ts"`, Assets directory trỏ vào `./public`.
    - Thiết lập database binding `DB` kết nối trực tiếp với Cloudflare D1 (`sbe-memory-db`, id: `87e77f75-64f7-49c4-a3e1-e823c56a23f0`).
 
 ---
@@ -116,50 +133,56 @@ sbe-assistant-pwa/
 flowchart TB
     subgraph ClientTier ["1. CLIENT TIER (User Browser / PWA)"]
         direction TB
-        UI["Giao diện Split-Screen (HTML5/CSS Grid)\nLeft: Chatbox (60%) | Right: Gherkin Editor (40%)"]
-        TS["Frontend Logic (src/index.ts -> public/js/index.js)\nDOM Events, Layout Resizer, State Manager"]
-        LS[("Local Storage\nDraft: sbe_draft")]
-        SW["Service Worker (sw.js)\nCache-First (Assets) | Network-First (API)"]
+        UI["Giao diện Split-Screen (HTML5/CSS Grid)\nLeft: Chatbox, Week & Model Selectors | Right: Gherkin Editor"]
+        TS["Frontend Logic (src/index.ts -> public/js/index.js)\nDOM Events, Layout Resizer, Dynamic Model Loader, Auto-save"]
+        LS[("Local Storage\nDraft: sbe_draft\nModel: sbe_selected_model")]
+        SW["Service Worker (sw.js v3)\nCache-First (Assets) | Network Direct (API bypass)"]
 
         UI <--> TS
         TS <--> LS
         TS -->|HTTP Requests| SW
     end
 
-    subgraph EdgeTier ["2. EDGE SERVERLESS TIER (Cloudflare Pages Network)"]
+    subgraph EdgeTier ["2. EDGE SERVERLESS TIER (Cloudflare Worker & Assets)"]
         direction TB
-        CFAssets["Cloudflare Static Assets CDN\n(public/*: HTML, JS, Manifest)"]
-        PagesFunc["Cloudflare Pages Functions Runtime (V8 Isolate)"]
+        CFAssets["Cloudflare Static Assets CDN (env.ASSETS)\n(public/*: HTML, JS, Manifest)"]
+        WorkerEntry["worker.ts (Cloudflare Worker ES Module Entrypoint)\nHTTPS Redirect, CORS Handler, Path Router"]
         ChatEndpoint["/api/chat Handler (functions/api/chat.ts)\nPrompt Assembler & JSON Parser"]
-        AnalyzeEndpoint["/api/analyze Handler (Dự kiến RAG)\nProgress Synthesizer"]
+        AnalyzeEndpoint["/api/analyze Handler (functions/api/analyze.ts)\nProgress Synthesizer & RAG"]
+        ModelsEndpoint["/api/models Handler (functions/api/models.ts)\nGemini Dynamic Model Discovery"]
 
-        SW -->|Fetch Assets| CFAssets
-        SW -->|POST /api/chat| PagesFunc
-        PagesFunc --> ChatEndpoint
-        PagesFunc -.->|Recall Query| AnalyzeEndpoint
+        SW -->|Fetch Assets| WorkerEntry
+        WorkerEntry -->|Serve Static| CFAssets
+        SW -->|API Calls /api/*| WorkerEntry
+        WorkerEntry -->|POST /api/chat| ChatEndpoint
+        WorkerEntry -->|POST /api/analyze| AnalyzeEndpoint
+        WorkerEntry -->|GET /api/models| ModelsEndpoint
     end
 
     subgraph DataAndAITier ["3. DATA & COGNITIVE SERVICES"]
         direction TB
-        GeminiAPI["Google Gemini REST API\nModel: gemini-3.6-flash\nJSON Mode (temperature: 0.2)"]
+        GeminiAPI["Google Gemini REST API\nEndpoints: /v1beta/models\nSelected Model (e.g. gemini-3.6-flash)\nJSON Mode (temperature: 0.2)"]
 
         subgraph D1DB ["Cloudflare D1 Database (sbe-memory-db)"]
             TblHistory[("Table: Chat_History\n(id, week_id, role, content)")]
             TblMemory[("Table: Memory_Blocks\n(id, week_id, summary_json)")]
         end
 
-        ChatEndpoint -->|POST /v1beta/models/gemini-3.6-flash| GeminiAPI
+        ModelsEndpoint -->|GET /v1beta/models| GeminiAPI
+        ChatEndpoint -->|POST /v1beta/models/:chosenModel:generateContent| GeminiAPI
+        AnalyzeEndpoint -->|POST /v1beta/models/:chosenModel:generateContent| GeminiAPI
         GeminiAPI -->|Structured JSON Response| ChatEndpoint
+        GeminiAPI -->|Recall JSON Response| AnalyzeEndpoint
         ChatEndpoint -->|INSERT Chat| TblHistory
         ChatEndpoint -->|INSERT Memory Block| TblMemory
-        AnalyzeEndpoint -.->|SELECT Historical Blocks| TblMemory
+        AnalyzeEndpoint -->|SELECT Historical Blocks| TblMemory
     end
 
     classDef client fill:#e1f5fe,stroke:#0288d1,stroke-width:1.5px;
     classDef edge fill:#fff3e0,stroke:#f57c00,stroke-width:1.5px;
     classDef service fill:#f3e5f5,stroke:#7b1fa2,stroke-width:1.5px;
     class UI,TS,LS,SW client;
-    class CFAssets,PagesFunc,ChatEndpoint,AnalyzeEndpoint edge;
+    class CFAssets,WorkerEntry,ChatEndpoint,AnalyzeEndpoint,ModelsEndpoint edge;
     class GeminiAPI,TblHistory,TblMemory service;
 ```
 
@@ -176,9 +199,17 @@ sequenceDiagram
     participant UI as Gherkin Editor & Chatbox
     participant LS as LocalStorage
     participant SW as Service Worker
-    participant API as /api/chat (Cloudflare Functions)
-    participant Gemini as Gemini 2.5 Flash API
+    participant Worker as Cloudflare Worker (worker.ts)
+    participant API as /api/chat (Edge Function)
+    participant Gemini as Google Gemini REST API
     participant D1 as Cloudflare D1 (SQLite)
+
+    Note over User,UI: Giai đoạn 0: Khởi động & Nạp Dynamic Models
+    UI->>Worker: GET /api/models
+    Worker->>Gemini: GET /v1beta/models?key=${apiKey}
+    Gemini-->>Worker: Danh sách Google Models
+    Worker-->>UI: Models đã lọc (Gemini 3.6 Flash khuyến nghị)
+    UI->>LS: Đọc/Ghi sbe_selected_model
 
     Note over User,UI: Giai đoạn 1: Soạn thảo kịch bản & Auto-save
     User->>UI: Nhập kịch bản Gherkin vào Editor
@@ -186,34 +217,30 @@ sequenceDiagram
     User->>UI: Bấm "Gửi Kịch bản" (btnSendScenario)
     UI->>UI: Disable nút gửi, hiển thị "Đang xử lý..."
 
-    Note over UI,API: Giai đoạn 2: Điều phối Request qua Mạng
-    UI->>SW: POST /api/chat { currentWeek, scenarioText }
-    alt Mất kết nối Internet
-        SW-->>UI: Fallback HTTP 503 { error: "Ngoại tuyến" }
-        UI->>User: Hiển thị cảnh báo mất mạng, giữ nguyên draft trong Editor
-    else Có kết nối Internet
-        SW->>API: Forward POST /api/chat
+    Note over UI,Worker: Giai đoạn 2: Điều phối Request qua Mạng
+    UI->>SW: POST /api/chat { currentWeek, scenarioText, model }
+    SW->>Worker: Bypass cache, direct forward
+    Worker->>API: Route to handleChat
 
-        Note over API,Gemini: Giai đoạn 3: Suy luận AI & Ép kiểu dữ liệu
-        API->>API: Lấy GEMINI_API_KEY từ env & Dựng System Prompt
-        API->>Gemini: POST generateContent (gemini-3.6-flash, response_mime_type: application/json)
-        Gemini-->>API: Trả về JSON chuẩn (message, concepts, mistakes, best_scenario, recommendations)
+    Note over API,Gemini: Giai đoạn 3: Suy luận AI theo Model đã chọn
+    API->>API: Lấy GEMINI_API_KEY từ env & Dựng System Prompt
+    API->>Gemini: POST generateContent (:chosenModel, response_mime_type: application/json)
+    Gemini-->>API: Trả về JSON chuẩn (message, concepts, mistakes, best_scenario, recommendations)
 
-        Note over API,D1: Giai đoạn 4: Lưu trữ kép vào Edge Database
-        par Lưu lịch sử chat ngắn hạn
-            API->>D1: INSERT INTO Chat_History (week_id, role, content) [User & Model]
-        and Lưu khối trí nhớ dài hạn (RAG)
-            API->>D1: INSERT INTO Memory_Blocks (week_id, summary_json)
-        end
-        D1-->>API: Ghi dữ liệu thành công
-
-        Note over API,User: Giai đoạn 5: Render kết quả & Hoàn tất
-        API-->>UI: HTTP 200 OK với Payload kết quả
-        UI->>LS: Xóa nháp sbe_draft
-        UI->>UI: Xóa nội dung editor, render nhận xét + lỗi đỏ + kịch bản chuẩn
-        UI->>UI: Kích hoạt lại nút gửi
-        UI-->>User: Hiển thị đầy đủ đánh giá từ SBE Mentor
+    Note over API,D1: Giai đoạn 4: Lưu trữ kép vào Edge Database
+    par Lưu lịch sử chat ngắn hạn
+        API->>D1: INSERT INTO Chat_History (week_id, role, content) [User & Model]
+    and Lưu khối trí nhớ dài hạn (RAG)
+        API->>D1: INSERT INTO Memory_Blocks (week_id, summary_json)
     end
+    D1-->>API: Ghi dữ liệu thành công
+
+    Note over API,User: Giai đoạn 5: Render kết quả & Hoàn tất
+    API-->>Worker-->>UI: HTTP 200 OK với Payload kết quả
+    UI->>LS: Xóa nháp sbe_draft
+    UI->>UI: Xóa nội dung editor, render nhận xét + lỗi đỏ + kịch bản chuẩn
+    UI->>UI: Kích hoạt lại nút gửi
+    UI-->>User: Hiển thị đầy đủ đánh giá từ SBE Mentor
 ```
 
 ---
@@ -232,9 +259,15 @@ sequenceDiagram
 1. **Vị trí và Phạm vi của Service Worker (`sw.js` scope) - [ĐÃ HOÀN TẤT]:**
    - Đã chuyển `sw.js` trực tiếp ra thư mục Web Root `public/sw.js` và cập nhật `package.json` sang `"build": "tsc"`. Không còn phụ thuộc lệnh `mv` của hệ điều hành, đảm bảo build mượt mà trên cả Windows và Linux CI.
 2. **Kích hoạt Endpoint RAG `/api/analyze` - [ĐÃ HOÀN TẤT]:**
-   - Đã tạo Edge Function `functions/api/analyze.ts` truy vấn `Memory_Blocks` từ D1 và tổng hợp qua Gemini 2.5 Flash.
+   - Đã tạo Edge Function `functions/api/analyze.ts` truy vấn `Memory_Blocks` từ D1 và tổng hợp qua Gemini 3.6 Flash.
    - Đã kết nối nút `btnRecall` trên giao diện PWA để hiển thị trực quan Bảng tổng kết tiến trình học tập (điểm sẵn sàng, khái niệm làm chủ, lỗi sai còn lặp lại, kế hoạch hành động).
-3. **Mở rộng Đa người dùng (User Multi-tenancy) - [BƯỚC TIẾP THEO]:**
+3. **Xử lý Hạn chế Địa lý của Google Gemini API (Geo-fencing & Placement Hints) - [ĐÃ HOÀN TẤT]:**
+   - **Hiện tượng:** Google Gemini API áp dụng chính sách kiểm tra IP máy chủ gọi đến (`egress IP`), từ chối các nút mạng đặt tại Hồng Kông / Trung Quốc (mã lỗi `400 FAILED_PRECONDITION: User location is not supported for the API use`). Do các tuyến cáp biển, Cloudflare Worker mặc định thường phân luồng các request từ Việt Nam qua cụm PoP Hồng Kông (HKG).
+   - **Giải pháp triệt để:**
+     - Thiết lập `"placement": { "region": "gcp:us-central1" }` trong `wrangler.jsonc` để ép buộc Cloudflare Worker thực thi tại các trung tâm dữ liệu đặt tại Hoa Kỳ gần cụm máy chủ Google Cloud, đảm bảo 100% outbound IP được chấp thuận.
+     - Hỗ trợ biến môi trường `GEMINI_BASE_URL` cho phép kết nối linh hoạt qua Cloudflare AI Gateway hoặc Reverse Proxy chuyên dụng.
+     - Xây dựng tầng bắt lỗi `isLocationBlocked` để hiển thị cảnh báo hướng dẫn rõ ràng trên giao diện.
+4. **Mở rộng Đa người dùng (User Multi-tenancy) - [BƯỚC TIẾP THEO]:**
    - Hai bảng `Chat_History` và `Memory_Blocks` hiện đang phục vụ theo mô hình Single-user (Personal).
    - Khi mở rộng cho nhiều người dùng đồng thời, cần bổ sung cột `user_id` vào `schema.sql` và tích hợp cơ chế xác thực (Auth via Cloudflare Access, Supabase Auth, Clerk hoặc Firebase Auth).
 
