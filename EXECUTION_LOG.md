@@ -105,12 +105,35 @@ Tại thời điểm bắt đầu phiên làm việc:
 
 ---
 
+### Giai đoạn 6: Khắc phục lỗi Cloudflare Deploy (`Binding 'DB' requires ES module format [code: 100329]`)
+
+- **Triệu chứng lỗi trên Cloudflare CI:**
+  ```text
+  ✘ [ERROR] A request to the Cloudflare API failed.
+    Binding 'DB' of type 'd1' requires a Worker written in ES module format. [code: 100329]
+  ```
+- **Nguyên nhân gốc rễ (Root Cause):**
+  - Trong `wrangler.jsonc`, thuộc tính `"main"` bị trỏ vào `"./public/sw.js"`.
+  - `public/sw.js` là Browser Service Worker sử dụng cú pháp `addEventListener("fetch")` (dạng Service Worker syntax cũ). Cloudflare D1 yêu cầu bắt buộc Worker phải viết dưới định dạng **ES Module** (`export default { fetch }`).
+  - Ngoài ra, `public/sw.js` chỉ chạy ở trình duyệt để lưu cache offline, không chứa router cho `/api/chat` và `/api/analyze`.
+- **Giải pháp thực hiện:**
+  1. Tạo mới entrypoint [`worker.ts`](./worker.ts) theo định dạng ES Module:
+     - Định tuyến POST `/api/chat` vào `functions/api/chat.ts`.
+     - Định tuyến POST `/api/analyze` vào `functions/api/analyze.ts`.
+     - Chuyển tiếp các request tĩnh còn lại cho `env.ASSETS.fetch(request)` (phục vụ từ `public/`).
+  2. Sửa `"main": "./public/sw.js"` thành `"main": "./worker.ts"` trong [`wrangler.jsonc`](./wrangler.jsonc).
+  3. Kiểm tra `npx wrangler deploy --dry-run`: Đóng gói thành công bundle 9.79 KiB, binding D1 được chấp thuận hoàn toàn.
+
+---
+
 ## 3. Tổng hợp Thay đổi File (Matrix File Changes)
 
 | Tên File                                                 | Thao tác               | Mô tả thay đổi                                                                 |
 | :------------------------------------------------------- | :--------------------- | :----------------------------------------------------------------------------- |
+| [`worker.ts`](./worker.ts)                               | **Tạo mới**            | Cloudflare Worker ES Module entrypoint định tuyến API và phục vụ static assets.|
+| [`wrangler.jsonc`](./wrangler.jsonc)                     | **Chỉnh sửa**          | Trỏ `"main": "./worker.ts"` thay vì file browser sw.js.                       |
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md)                   | **Tạo mới & Cập nhật** | Tài liệu kiến trúc toàn diện kèm 2 sơ đồ Mermaid.js và lộ trình phát triển.    |
-| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Tạo mới**            | Nhật ký thực hiện toàn bộ tiến trình để phục vụ tra cứu sau này.               |
+| [`EXECUTION_LOG.md`](./EXECUTION_LOG.md)                 | **Tạo mới & Cập nhật** | Nhật ký thực hiện toàn bộ tiến trình để phục vụ tra cứu sau này.               |
 | [`package.json`](./package.json)                         | **Chỉnh sửa**          | Sửa script `"build": "tsc"` loại bỏ lệnh `mv` phụ thuộc nền tảng.              |
 | [`public/sw.js`](./public/sw.js)                         | **Tạo mới**            | Đặt Service Worker đúng thư mục gốc Web Root của Cloudflare Pages.             |
 | [`public/js/sw.js`](./public/js/sw.js)                   | **Xóa bỏ**             | Loại bỏ file thừa để tránh nhầm lẫn cấu trúc.                                  |

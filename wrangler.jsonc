@@ -1,7 +1,7 @@
 {
   "name": "sbe-assistant-pwa",
   "compatibility_date": "2026-09-17",
-  "main": "./public/sw.js",
+  "main": "./worker.ts",
   "assets": {
     "directory": "./public/",
   },
