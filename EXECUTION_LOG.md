@@ -188,6 +188,32 @@ Tại thời điểm bắt đầu phiên làm việc:
 
 ---
 
+### Giai đoạn 10: Nâng cấp Mô hình Gemini sang `gemini-3.6-flash`
+
+- **Triệu chứng lỗi từ Google API:**
+  ```json
+  {
+    "error": {
+      "code": 404,
+      "message": "This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.6-flash for the latest features and improvements.",
+      "status": "NOT_FOUND"
+    }
+  }
+  ```
+- **Nguyên nhân gốc rễ:**
+  - Google Gemini API đã ngừng cung cấp mô hình `gemini-2.5-flash` cho người dùng mới và yêu cầu nâng cấp lên phiên bản mới nhất `gemini-3.6-flash`.
+- **Giải pháp thực hiện:**
+  1. Cập nhật endpoint gọi API trong [`functions/api/chat.ts`](./functions/api/chat.ts):
+     - `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`
+  2. Cập nhật endpoint gọi API trong [`functions/api/analyze.ts`](./functions/api/analyze.ts):
+     - `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`
+  3. Đồng bộ hóa toàn bộ tài liệu dự án:
+     - [`ARCHITECTURE.md`](./ARCHITECTURE.md): Bảng Tech Stack, phần giải thích file và 2 sơ đồ Mermaid.js.
+     - [`SBE-Assistant-Master-Document.md`](./SBE-Assistant-Master-Document.md): Mục AI Integration.
+  4. Biên dịch và kiểm thử: `npm run build` thành công, `npx wrangler deploy --dry-run` hoàn tất không lỗi.
+
+---
+
 ## 3. Tổng hợp Thay đổi File (Matrix File Changes)
 
 | Tên File                                                 | Thao tác               | Mô tả thay đổi                                                                  |

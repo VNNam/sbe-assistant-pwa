@@ -13,7 +13,7 @@ Dưới đây là tài liệu tổng hợp toàn bộ kiến trúc, thiết kế
 - **Front-end:** HTML tĩnh, CSS (Grid/Flexbox), và TypeScript biên dịch sang JavaScript thuần.
 - **Back-end (Serverless):** Cloudflare Pages Functions (Node.js) xử lý API trung gian.
 - **Database:** Cloudflare D1 (SQLite) lưu trữ dữ liệu hệ thống trên Edge Network.
-- **AI Integration:** Tích hợp trực tiếp Gemini REST API (model gemini-2.5-flash) thông qua fetch, ép kiểu dữ liệu trả về chuẩn JSON.
+- **AI Integration:** Tích hợp trực tiếp Gemini REST API (model gemini-3.6-flash) thông qua fetch, ép kiểu dữ liệu trả về chuẩn JSON.
 - **PWA & Offline:** Service Worker viết bằng JavaScript thuần (public/sw.js) và manifest.json.
 - **CI/CD:** Cloudflare Native CI kết nối trực tiếp với nhánh main của GitHub.
 

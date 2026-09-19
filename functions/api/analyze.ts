@@ -86,7 +86,7 @@ Hãy phân tích toàn diện lịch sử học tập trên và trả về kết
 Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức độ thành thạo và sẵn sàng áp dụng SBE vào dự án thực tế.`;
 
     // 4. Gọi Gemini REST API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
     const geminiResponse = await fetch(geminiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

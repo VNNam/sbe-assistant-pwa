@@ -32,7 +32,7 @@
 | **Client Scripting**          | TypeScript (`ES2020`, `module: ESNext`)                                         | Đảm bảo Type Safety cho Data Payload, bắt sự kiện DOM, tương tác `localStorage` và fetch API.                                               |
 | **Offline & PWA**             | Service Worker (`Cache-First` + `Network-First API fallback`), Web App Manifest | Cài đặt ứng dụng lên Home Screen thiết bị (standalone), cache shell tĩnh, bắt ngoại lệ mạng khi gọi API.                                    |
 | **Edge Compute / Serverless** | Cloudflare Pages Functions                                                      | Runtime V8 Isolate siêu nhẹ trên Edge, không có cold-start, đóng vai trò API Gateway xử lý endpoint `/api/chat`.                            |
-| **AI / LLM Engine**           | Google Gemini 2.5 Flash (`gemini-2.5-flash`)                                    | Nhiệt độ thấp (`temperature: 0.2`), ép kiểu cấu trúc đầu ra JSON (`response_mime_type: "application/json"`).                                |
+| **AI / LLM Engine**           | Google Gemini 3.6 Flash (`gemini-3.6-flash`)                                    | Nhiệt độ thấp (`temperature: 0.2`), ép kiểu cấu trúc đầu ra JSON (`response_mime_type: "application/json"`).                                |
 | **Database / Persistence**    | Cloudflare D1 (Distributed SQLite)                                              | Cơ sở dữ liệu quan hệ phân tán tại Edge, lưu trữ `Chat_History` và `Memory_Blocks`.                                                         |
 | **CI/CD & DevOps**            | Cloudflare Pages Native CI/CD + Wrangler CLI                                    | Tự động build từ Git repository (`npm run build`), deploy tự động ra môi trường production.                                                 |
 
@@ -70,7 +70,7 @@ sbe-assistant-pwa/
 1. **`functions/api/chat.ts` (Backend API Gateway & Agent Controller):**
    - **Xử lý Request:** Nhận POST payload chứa `{ currentWeek, scenarioText }`.
    - **System Prompt Engineering:** Xây dựng prompt chuyên môn hóa theo từng tuần học, định nghĩa cấu trúc JSON schema bắt buộc 5 trường (`message`, `analysis.learned_concepts`, `mistakes`, `best_scenario`, `recommendations`).
-   - **Gọi Gemini REST API:** Gửi payload sang endpoint `gemini-2.5-flash:generateContent` bằng fetch native với `response_mime_type: "application/json"`.
+   - **Gọi Gemini REST API:** Gửi payload sang endpoint `gemini-3.6-flash:generateContent` bằng fetch native với `response_mime_type: "application/json"`.
    - **Ghi dữ liệu kép vào Cloudflare D1 (`env.DB`):**
      - Lưu lượt hội thoại ngắn hạn vào bảng `Chat_History`.
      - Lưu khối kiến thức dài hạn đã chuẩn hóa vào bảng `Memory_Blocks`.
@@ -141,14 +141,14 @@ flowchart TB
 
     subgraph DataAndAITier ["3. DATA & COGNITIVE SERVICES"]
         direction TB
-        GeminiAPI["Google Gemini REST API\nModel: gemini-2.5-flash\nJSON Mode (temperature: 0.2)"]
+        GeminiAPI["Google Gemini REST API\nModel: gemini-3.6-flash\nJSON Mode (temperature: 0.2)"]
 
         subgraph D1DB ["Cloudflare D1 Database (sbe-memory-db)"]
             TblHistory[("Table: Chat_History\n(id, week_id, role, content)")]
             TblMemory[("Table: Memory_Blocks\n(id, week_id, summary_json)")]
         end
 
-        ChatEndpoint -->|POST /v1beta/models/gemini-2.5-flash| GeminiAPI
+        ChatEndpoint -->|POST /v1beta/models/gemini-3.6-flash| GeminiAPI
         GeminiAPI -->|Structured JSON Response| ChatEndpoint
         ChatEndpoint -->|INSERT Chat| TblHistory
         ChatEndpoint -->|INSERT Memory Block| TblMemory
@@ -196,7 +196,7 @@ sequenceDiagram
 
         Note over API,Gemini: Giai đoạn 3: Suy luận AI & Ép kiểu dữ liệu
         API->>API: Lấy GEMINI_API_KEY từ env & Dựng System Prompt
-        API->>Gemini: POST generateContent (gemini-2.5-flash, response_mime_type: application/json)
+        API->>Gemini: POST generateContent (gemini-3.6-flash, response_mime_type: application/json)
         Gemini-->>API: Trả về JSON chuẩn (message, concepts, mistakes, best_scenario, recommendations)
 
         Note over API,D1: Giai đoạn 4: Lưu trữ kép vào Edge Database
