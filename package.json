@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "tsc && mv public/js/sw.js public/sw.js",
+    "build": "tsc",
     "watch": "tsc -w",
     "dev": "wrangler pages dev public"
   },

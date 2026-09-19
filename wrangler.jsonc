@@ -1,0 +1,15 @@
+{
+  "name": "sbe-assistant-pwa",
+  "compatibility_date": "2026-09-17",
+  "main": "./public/sw.js",
+  "assets": {
+    "directory": "./public/",
+  },
+  "d1_namespaces": [
+    {
+      "binding": "DB",
+      "database_name": "sbe-memory-db",
+      "database_id": "87e77f75-64f7-49c4-a3e1-e823c56a23f0",
+    },
+  ],
+}

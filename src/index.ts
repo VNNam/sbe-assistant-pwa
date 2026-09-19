@@ -115,12 +115,114 @@ btnSend.addEventListener("click", async () => {
   }
 });
 
-btnRecall.addEventListener("click", () => {
+btnRecall.addEventListener("click", async () => {
+  const currentWeek = parseInt(weekSelector.value, 10) || 1;
+  btnRecall.disabled = true;
+  btnRecall.textContent = "Đang tổng kết...";
+
   appendMessage(
     "Hệ thống",
-    "Đang trích xuất dữ liệu từ Memory_Blocks... (Cần tích hợp Database ở bước sau)",
-    true,
+    `Đang trích xuất dữ liệu từ <em>Memory_Blocks</em> và tiến hành phân tích tiến trình học tập cho Tuần ${currentWeek}...`,
+    false,
   );
+
+  try {
+    const response = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentWeek }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 503) throw new Error("OFFLINE");
+      const errJson = await response.json().catch(() => ({}));
+      throw new Error(errJson.error || `Lỗi máy chủ (${response.status})`);
+    }
+
+    const data = await response.json();
+
+    if (data.empty) {
+      appendMessage(
+        "SBE Mentor",
+        `<p style="color: #666; font-style: italic;">${data.message}</p>`,
+      );
+      return;
+    }
+
+    const recall = data.recall;
+    const score = recall.readiness_score ?? 0;
+    const scoreColor =
+      score >= 80 ? "#28a745" : score >= 50 ? "#ffc107" : "#dc3545";
+
+    let recallHtml = `
+      <div style="background: #ffffff; border: 1px solid #dcdcdc; border-radius: 8px; padding: 16px; margin-top: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 12px;">
+          <h3 style="margin: 0; color: #007acc; font-size: 16px;">📊 BẢNG TỔNG KẾT TIẾN TRÌNH HỌC TẬP (TUẦN ${currentWeek})</h3>
+          <span style="background: ${scoreColor}; color: white; padding: 4px 10px; border-radius: 12px; font-weight: bold; font-size: 13px;">
+            Sẵn sàng: ${score}/100
+          </span>
+        </div>
+
+        <p style="margin: 8px 0; line-height: 1.5; color: #222;">
+          <strong>Đánh giá tổng quan:</strong> ${recall.overview}
+        </p>
+    `;
+
+    if (recall.mastered_concepts && recall.mastered_concepts.length > 0) {
+      recallHtml += `
+        <div style="margin-top: 12px; border-left: 3px solid #28a745; padding-left: 10px;">
+          <strong style="color: #28a745;">✔ Khái niệm đã làm chủ:</strong>
+          <ul style="margin: 6px 0 0 0; padding-left: 20px; color: #333;">
+            ${recall.mastered_concepts.map((c: string) => `<li>${c}</li>`).join("")}
+          </ul>
+        </div>
+      `;
+    }
+
+    if (recall.recurring_mistakes && recall.recurring_mistakes.length > 0) {
+      recallHtml += `
+        <div style="margin-top: 12px; border-left: 3px solid #d9534f; padding-left: 10px;">
+          <strong style="color: #d9534f;">⚠ Lỗi sai còn lặp lại cần khắc phục:</strong>
+          <ul style="margin: 6px 0 0 0; padding-left: 20px; color: #333;">
+            ${recall.recurring_mistakes.map((m: string) => `<li>${m}</li>`).join("")}
+          </ul>
+        </div>
+      `;
+    }
+
+    if (recall.action_plan && recall.action_plan.length > 0) {
+      recallHtml += `
+        <div style="margin-top: 12px; border-left: 3px solid #007acc; padding-left: 10px;">
+          <strong style="color: #007acc;">💡 Kế hoạch hành động gợi ý:</strong>
+          <ul style="margin: 6px 0 0 0; padding-left: 20px; color: #333;">
+            ${recall.action_plan.map((a: string) => `<li>${a}</li>`).join("")}
+          </ul>
+        </div>
+      `;
+    }
+
+    recallHtml += `
+        <div style="margin-top: 12px; font-size: 11px; color: #888; text-align: right;">
+          Dữ liệu tổng hợp từ ${data.total_blocks_analyzed} kịch bản trong Memory_Blocks
+        </div>
+      </div>
+    `;
+
+    appendMessage("SBE Mentor", recallHtml);
+  } catch (error: any) {
+    if (error.message === "OFFLINE") {
+      appendMessage(
+        "Hệ thống",
+        "Bạn đang mất kết nối mạng. Tính năng tổng kết yêu cầu kết nối tới Edge Server.",
+        true,
+      );
+    } else {
+      appendMessage("Hệ thống", "Lỗi tổng kết: " + error.message, true);
+    }
+  } finally {
+    btnRecall.disabled = false;
+    btnRecall.textContent = "Tổng kết (Recall)";
+  }
 });
 
 if ("serviceWorker" in navigator) {
