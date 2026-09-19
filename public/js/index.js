@@ -95,38 +95,47 @@ if ("serviceWorker" in navigator) {
     });
 }
 // ==========================================
-// 7. TÍNH NĂNG KÉO THẢ ĐIỀU CHỈNH MÀN HÌNH
+// 7. TÍNH NĂNG KÉO THẢ ĐIỀU CHỈNH MÀN HÌNH (BẢN CHUẨN)
 // ==========================================
 const appContainer = document.getElementById("appContainer");
 const resizer = document.getElementById("dragMe");
-let isResizing = false;
-// Khi nhấn chuột xuống thanh resizer
-resizer.addEventListener("mousedown", (e) => {
-    isResizing = true;
-    document.body.style.cursor = "col-resize";
-    // Tạm thời vô hiệu hóa việc bôi đen chữ khi đang kéo
-    document.body.style.userSelect = "none";
-});
-// Khi di chuyển chuột trên toàn màn hình
-document.addEventListener("mousemove", (e) => {
-    if (!isResizing)
-        return;
-    // Tính toán % chiều rộng mới dựa trên tọa độ X của chuột
-    let newLeftWidth = (e.clientX / window.innerWidth) * 100;
-    // Giới hạn không cho kéo quá nhỏ hoặc quá to (20% đến 80%)
-    if (newLeftWidth < 20)
-        newLeftWidth = 20;
-    if (newLeftWidth > 80)
-        newLeftWidth = 80;
-    // Cập nhật lại thuộc tính CSS Grid
-    appContainer.style.gridTemplateColumns = `${newLeftWidth}% 5px 1fr`;
-});
-// Khi nhả chuột ra
-document.addEventListener("mouseup", () => {
-    if (isResizing) {
-        isResizing = false;
-        document.body.style.cursor = "default";
-        // Khôi phục khả năng bôi đen văn bản
-        document.body.style.userSelect = "auto";
-    }
-});
+const leftPanel = document.querySelector(".ai-chat-section");
+const rightPanel = document.querySelector(".gherkin-editor-section");
+if (appContainer && resizer) {
+    let isResizing = false;
+    resizer.addEventListener("mousedown", (e) => {
+        isResizing = true;
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+        // Ngăn textarea nuốt sự kiện chuột khi kéo nhanh
+        if (leftPanel)
+            leftPanel.style.pointerEvents = "none";
+        if (rightPanel)
+            rightPanel.style.pointerEvents = "none";
+    });
+    document.addEventListener("mousemove", (e) => {
+        if (!isResizing)
+            return;
+        let newLeftWidth = (e.clientX / window.innerWidth) * 100;
+        if (newLeftWidth < 20)
+            newLeftWidth = 20;
+        if (newLeftWidth > 80)
+            newLeftWidth = 80;
+        appContainer.style.gridTemplateColumns = `${newLeftWidth}% 5px 1fr`;
+    });
+    document.addEventListener("mouseup", () => {
+        if (isResizing) {
+            isResizing = false;
+            document.body.style.cursor = "default";
+            document.body.style.userSelect = "auto";
+            // Trả lại khả năng tương tác cho 2 khung
+            if (leftPanel)
+                leftPanel.style.pointerEvents = "auto";
+            if (rightPanel)
+                rightPanel.style.pointerEvents = "auto";
+        }
+    });
+}
+else {
+    console.warn("Chưa tìm thấy id='appContainer' hoặc 'dragMe' trong HTML.");
+}
