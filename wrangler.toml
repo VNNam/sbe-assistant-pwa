@@ -1,11 +1,8 @@
 name = "sbe-assistant-pwa"
-pages_build_output_dir = "dist"
+pages_build_output_dir = "public"
 compatibility_date = "2026-09-17"
 
-[assets]
-directory = "./public"
-
 [[d1_databases]]
-binding = "DB" # Hãy đổi thành sbe_memory_db nếu code của bạn dùng env.sbe_memory_db
+binding = "DB"
 database_name = "sbe-memory-db"
 database_id = "87e77f75-64f7-49c4-a3e1-e823c56a23f0"
