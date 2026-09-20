@@ -1,3 +1,5 @@
+import { logError, buildUserFacingError } from "./_logError";
+
 export async function onRequestPost(context: any) {
   const { request, env } = context;
 
@@ -8,9 +10,20 @@ export async function onRequestPost(context: any) {
 
     const apiKey = env.GEMINI_API_KEY;
     if (!apiKey) {
+      await logError(env.DB, {
+        error_code: "LOGIC_500",
+        source: "analyze.ts",
+        action: "recall",
+        model: chosenModel,
+        week_id: currentWeek,
+        http_status: 500,
+        raw_error: "GEMINI_API_KEY không được cấu hình trong environment",
+        colo: request.cf?.colo,
+      });
       return new Response(
         JSON.stringify({
-          error: "Chưa cấu hình GEMINI_API_KEY trong môi trường.",
+          errorCode: "ERR-500",
+          error: "Đã xảy ra lỗi cấu hình dịch vụ. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
         }),
         { status: 500, headers: { "Content-Type": "application/json" } },
       );
@@ -19,8 +32,8 @@ export async function onRequestPost(context: any) {
     if (!env.DB) {
       return new Response(
         JSON.stringify({
-          error:
-            "Cơ sở dữ liệu Cloudflare D1 chưa được liên kết (env.DB). Vui lòng kiểm tra wrangler.toml hoặc Dashboard.",
+          errorCode: "ERR-500",
+          error: "Đã xảy ra lỗi cấu hình cơ sở dữ liệu. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
         }),
         { status: 500, headers: { "Content-Type": "application/json" } },
       );
@@ -134,7 +147,6 @@ Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức
         if (geminiResponse.ok) break;
 
         if (geminiResponse.status === 503 && attempt === 0) {
-          // 503 High Demand: Chờ 600ms rồi thử lại
           await new Promise((r) => setTimeout(r, 600));
           continue;
         }
@@ -159,48 +171,75 @@ Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức
       break;
     }
 
+    // ─── Xử lý lỗi từ Gemini API: ghi log kỹ thuật + trả thông điệp thân thiện ───
     if (!geminiResponse || !geminiResponse.ok) {
       const errText =
         lastErrText ||
         (geminiResponse
           ? await geminiResponse.text().catch(() => "")
           : "Unknown");
+      const httpStatus = geminiResponse?.status ?? 500;
       const colo = request.cf?.colo || "Local";
-      if (
-        errText.includes("User location is not supported") ||
-        errText.includes("FAILED_PRECONDITION")
-      ) {
-        console.error(
-          `[Gemini Location Blocked in Recall] Colo: ${colo}, Error: ${errText}`,
-        );
-        return new Response(
-          JSON.stringify({
-            error:
-              "Vị trí máy chủ chưa được Google Gemini API hỗ trợ (User location is not supported).",
-            detail: `Cloudflare Edge Node đang thực thi tại trạm '${colo}'. Dự án đã bật cấu hình placement: { region: 'gcp:us-central1' } trong wrangler.jsonc. Hãy deploy bản mới nhất lên Cloudflare hoặc cấu hình GEMINI_BASE_URL (Cloudflare AI Gateway) để tự động chuyển tiếp qua Hoa Kỳ.`,
-            isLocationBlocked: true,
-            colo: colo,
-          }),
-          { status: 400, headers: { "Content-Type": "application/json" } },
-        );
+
+      let logCode = `HTTP_${httpStatus}`;
+      if (httpStatus === 429 || errText.includes("RESOURCE_EXHAUSTED")) {
+        logCode = "QUOTA_429";
+      } else if (errText.includes("FAILED_PRECONDITION") || errText.includes("User location is not supported")) {
+        logCode = "LOCATION_400";
+      } else if (httpStatus === 404) {
+        logCode = "MODEL_404";
+      } else if (httpStatus === 503) {
+        logCode = "OVERLOAD_503";
+      } else if (httpStatus === 401 || httpStatus === 403) {
+        logCode = "AUTH_401";
       }
-      if (geminiResponse.status === 503) {
-        return new Response(
-          JSON.stringify({
-            error:
-              "Mô hình AI hiện đang quá tải trên hệ thống của Google (High Demand 503). Vui lòng thử lại sau giây lát hoặc chọn mô hình khác từ danh sách.",
-          }),
-          { status: 503, headers: { "Content-Type": "application/json" } },
-        );
+
+      let retryAfter: number | undefined;
+      if (httpStatus === 429) {
+        const retryMatch = errText.match(/"retryDelay":\s*"(\d+)(?:\.\d+)?s"/);
+        if (retryMatch) retryAfter = Math.ceil(parseFloat(retryMatch[1]));
       }
-      throw new Error(
-        `Gemini API Error (${geminiResponse.status}): ${errText}`,
+
+      await logError(env.DB, {
+        error_code: logCode,
+        source: "analyze.ts",
+        action: "recall",
+        model: activeModel,
+        week_id: currentWeek,
+        http_status: httpStatus,
+        raw_error: errText,
+        retry_after: retryAfter,
+        colo,
+      });
+
+      const userErr = buildUserFacingError(httpStatus, errText);
+      return new Response(
+        JSON.stringify({
+          errorCode: userErr.errorCode,
+          error: userErr.userMessage,
+          ...(userErr.retryAfterSeconds !== undefined && { retryAfterSeconds: userErr.retryAfterSeconds }),
+          ...(userErr.isQuota && { isQuota: true }),
+        }),
+        {
+          status: httpStatus === 429 ? 429 : (httpStatus >= 400 && httpStatus < 500 ? 400 : 503),
+          headers: { "Content-Type": "application/json" },
+        },
       );
     }
 
     const geminiData = await geminiResponse.json();
     const aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!aiText) {
+      await logError(env.DB, {
+        error_code: "LOGIC_500",
+        source: "analyze.ts",
+        action: "recall",
+        model: activeModel,
+        week_id: currentWeek,
+        http_status: 200,
+        raw_error: "Gemini trả HTTP 200 nhưng không có nội dung hợp lệ. Response: " + JSON.stringify(geminiData).substring(0, 500),
+        colo: request.cf?.colo,
+      });
       throw new Error("Gemini không trả về nội dung hợp lệ.");
     }
 
@@ -209,19 +248,25 @@ Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức
     try {
       parsedRecall = JSON.parse(aiText.trim());
     } catch {
-      const codeBlockMatch = aiText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-      if (codeBlockMatch && codeBlockMatch[1]) {
-        parsedRecall = JSON.parse(codeBlockMatch[1].trim());
-      } else {
-        const firstBrace = aiText.indexOf("{");
-        const lastBrace = aiText.lastIndexOf("}");
-        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-          parsedRecall = JSON.parse(
-            aiText.substring(firstBrace, lastBrace + 1).trim(),
-          );
-        } else {
-          throw new Error("Phản hồi không chứa cấu trúc JSON hợp lệ.");
+      try {
+        const codeBlockMatch = aiText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        if (codeBlockMatch && codeBlockMatch[1]) {
+          parsedRecall = JSON.parse(codeBlockMatch[1].trim());
         }
+      } catch { /* bỏ qua */ }
+
+      if (!parsedRecall) {
+        try {
+          const firstBrace = aiText.indexOf("{");
+          const lastBrace = aiText.lastIndexOf("}");
+          if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+            parsedRecall = JSON.parse(aiText.substring(firstBrace, lastBrace + 1).trim());
+          }
+        } catch { /* bỏ qua */ }
+      }
+
+      if (!parsedRecall) {
+        throw new Error("Phản hồi không chứa cấu trúc JSON hợp lệ.");
       }
     }
 
@@ -238,8 +283,22 @@ Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức
       },
     );
   } catch (error: any) {
+    try {
+      await logError(env.DB, {
+        error_code: "LOGIC_500",
+        source: "analyze.ts",
+        action: "recall",
+        http_status: 500,
+        raw_error: error?.stack || error?.message || String(error),
+        colo: request.cf?.colo,
+      });
+    } catch { /* không để lỗi log phá vỡ response */ }
+
     return new Response(
-      JSON.stringify({ error: "Lỗi máy chủ khi tổng kết: " + error.message }),
+      JSON.stringify({
+        errorCode: "ERR-500",
+        error: "Đã xảy ra lỗi trong quá trình tổng kết. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
+      }),
       {
         status: 500,
         headers: { "Content-Type": "application/json" },

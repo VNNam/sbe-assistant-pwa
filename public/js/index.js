@@ -161,6 +161,87 @@ function appendMessage(sender, htmlContent, isSystem = false) {
     chatHistory.appendChild(msgElement);
     chatHistory.scrollTop = chatHistory.scrollHeight;
 }
+/**
+ * renderErrorCard — Hiển thị thông báo lỗi thân thiện dạng card lên chat history.
+ * KHÔNG hiển thị thông tin kỹ thuật (stack trace, raw JSON) lên giao diện.
+ */
+function renderErrorCard(errData, retryCallback) {
+    const code = errData.errorCode || "ERR";
+    const message = errData.error || "Đã xảy ra lỗi. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.";
+    const isQuota = !!errData.isQuota;
+    const retryAfter = errData.retryAfterSeconds;
+    const cardEl = document.createElement("div");
+    cardEl.style.marginBottom = "15px";
+    // Xác định màu sắc theo loại lỗi
+    const isWarn = isQuota || code.includes("503") || code.includes("429");
+    const bg = isWarn ? "#fff8e1" : "#fff3f3";
+    const border = isWarn ? "#f0ad4e" : "#d9534f";
+    const icon = isWarn ? "⚠" : "✖";
+    const titleColor = isWarn ? "#856404" : "#721c24";
+    let cardHtml = `
+    <div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:12px 14px;font-size:13.5px;line-height:1.5;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+        <div>
+          <strong style="color:${titleColor};">${icon} Mã lỗi: ${code}</strong>
+          <p style="margin:6px 0 0 0;color:#333;">${escapeHtml(message)}</p>
+        </div>
+      </div>`;
+    if (retryCallback && retryAfter !== undefined && retryAfter > 0) {
+        cardHtml += `
+      <div style="margin-top:10px;">
+        <button id="retryBtn_${code}" style="background:#f0ad4e;color:#fff;border:none;border-radius:5px;padding:7px 14px;cursor:pointer;font-size:13px;">
+          Thử lại sau <span id="retryCountdown_${code}">${retryAfter}</span>s
+        </button>
+      </div>`;
+    }
+    else if (retryCallback) {
+        cardHtml += `
+      <div style="margin-top:10px;">
+        <button id="retryBtn_${code}" style="background:#007acc;color:#fff;border:none;border-radius:5px;padding:7px 14px;cursor:pointer;font-size:13px;">
+          Thử lại
+        </button>
+      </div>`;
+    }
+    cardHtml += `</div>`;
+    cardEl.innerHTML = `<strong style="color:#d9534f;">Hệ thống:</strong> <div style="margin-top:5px;">${cardHtml}</div>`;
+    chatHistory.appendChild(cardEl);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+    // Nếu có countdown retry
+    if (retryCallback && retryAfter !== undefined && retryAfter > 0) {
+        const btnId = `retryBtn_${code}`;
+        const countdownId = `retryCountdown_${code}`;
+        const btn = cardEl.querySelector(`#${btnId}`);
+        const countdown = cardEl.querySelector(`#${countdownId}`);
+        let remaining = retryAfter;
+        if (btn)
+            btn.disabled = true;
+        const timer = setInterval(() => {
+            remaining--;
+            if (countdown)
+                countdown.textContent = String(remaining);
+            if (remaining <= 0) {
+                clearInterval(timer);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = "Thử lại ngay";
+                    btn.addEventListener("click", () => {
+                        cardEl.remove();
+                        retryCallback();
+                    });
+                }
+            }
+        }, 1000);
+    }
+    else if (retryCallback) {
+        const btn = cardEl.querySelector(`#retryBtn_${code}`);
+        if (btn) {
+            btn.addEventListener("click", () => {
+                cardEl.remove();
+                retryCallback();
+            });
+        }
+    }
+}
 function escapeHtml(str) {
     const div = document.createElement("div");
     div.textContent = str;
@@ -211,35 +292,25 @@ async function sendChatMessage() {
             }),
         });
         if (!response.ok) {
-            if (response.status === 503)
-                throw new Error("OFFLINE");
             const errJson = await response.json().catch(() => ({}));
-            if (errJson.isLocationBlocked ||
-                (errJson.error &&
-                    (errJson.error.includes("location") ||
-                        errJson.error.includes("Vị trí máy chủ")))) {
-                const locationWarningHtml = `
-          <div style="background: #fff3cd; color: #856404; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px;">
-            <strong>⚠ Hạn chế Địa lý từ Google Gemini API:</strong>
-            <p style="margin: 6px 0;">${errJson.error}</p>
-            <p style="margin: 4px 0; font-size: 13px; color: #664d03;">${errJson.detail || "Cloudflare Edge Node đang ở vùng bị Google chặn. Dự án đã kích hoạt cấu hình placement trong wrangler.jsonc."}</p>
-          </div>
-        `;
-                appendMessage("Hệ thống", locationWarningHtml, true);
-                return;
-            }
-            throw new Error(errJson.error || `Lỗi máy chủ (${response.status})`);
+            renderErrorCard(errJson, sendChatMessage);
+            return;
         }
         const data = await response.json();
+        // Nếu server trả errorCode (lỗi được xử lý có cấu trúc) thì render card lỗi
+        if (data.errorCode) {
+            renderErrorCard(data, sendChatMessage);
+            return;
+        }
         const replyHtml = formatMentorMarkdown(data.message || "Đã nhận được tin nhắn.");
         appendMessage("SBE Mentor", replyHtml);
     }
     catch (error) {
-        if (error.message === "OFFLINE") {
-            appendMessage("Hệ thống", "Bạn đang mất kết nối mạng. Tin nhắn chưa được gửi.", true);
+        if (error.name === "TypeError" && error.message.includes("fetch")) {
+            renderErrorCard({ errorCode: "ERR-OFFLINE", error: "Bạn đang mất kết nối mạng. Tin nhắn chưa được gửi." });
         }
         else {
-            appendMessage("Hệ thống", "Lỗi trò chuyện: " + error.message, true);
+            renderErrorCard({ errorCode: "ERR-CLIENT", error: "Đã xảy ra lỗi kết nối. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ." });
         }
     }
     finally {
@@ -287,26 +358,17 @@ btnSend.addEventListener("click", async () => {
             body: JSON.stringify(payload),
         });
         if (!response.ok) {
-            if (response.status === 503)
-                throw new Error("OFFLINE");
             const errJson = await response.json().catch(() => ({}));
-            if (errJson.isLocationBlocked ||
-                (errJson.error &&
-                    (errJson.error.includes("location") ||
-                        errJson.error.includes("Vị trí máy chủ")))) {
-                const locationWarningHtml = `
-          <div style="background: #fff3cd; color: #856404; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px;">
-            <strong>⚠ Hạn chế Địa lý từ Google Gemini API:</strong>
-            <p style="margin: 6px 0;">${errJson.error}</p>
-            <p style="margin: 4px 0; font-size: 13px; color: #664d03;">${errJson.detail || "Cloudflare Edge Node đang ở vùng bị Google chặn. Dự án đã kích hoạt cấu hình placement trong wrangler.jsonc."}</p>
-          </div>
-        `;
-                appendMessage("Hệ thống", locationWarningHtml, true);
-                return;
-            }
-            throw new Error(errJson.error || `Lỗi máy chủ (${response.status})`);
+            const doRetry = () => btnSend.click();
+            renderErrorCard(errJson, doRetry);
+            return;
         }
         const data = await response.json();
+        // Nếu server trả errorCode (lỗi có cấu trúc) thì render card lỗi
+        if (data.errorCode) {
+            renderErrorCard(data, () => btnSend.click());
+            return;
+        }
         // Render thông báo chính
         let aiHtml = `<p>${data.message}</p>`;
         // Render mảng lỗi sai (chữ đỏ)
@@ -335,11 +397,11 @@ btnSend.addEventListener("click", async () => {
         updateEditorHighlight();
     }
     catch (error) {
-        if (error.message === "OFFLINE") {
-            appendMessage("Hệ thống", "Bạn đang mất kết nối mạng. Kịch bản đã được lưu nháp an toàn.", true);
+        if (error.name === "TypeError" && error.message.includes("fetch")) {
+            renderErrorCard({ errorCode: "ERR-OFFLINE", error: "Bạn đang mất kết nối mạng. Kịch bản đã được lưu nháp an toàn." });
         }
         else {
-            appendMessage("Hệ thống", "Lỗi xử lý: " + error.message, true);
+            renderErrorCard({ errorCode: "ERR-CLIENT", error: "Đã xảy ra lỗi kết nối. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ." });
         }
     }
     finally {
@@ -360,26 +422,16 @@ btnRecall.addEventListener("click", async () => {
             body: JSON.stringify({ currentWeek, model: selectedModel }),
         });
         if (!response.ok) {
-            if (response.status === 503)
-                throw new Error("OFFLINE");
             const errJson = await response.json().catch(() => ({}));
-            if (errJson.isLocationBlocked ||
-                (errJson.error &&
-                    (errJson.error.includes("location") ||
-                        errJson.error.includes("Vị trí máy chủ")))) {
-                const locationWarningHtml = `
-          <div style="background: #fff3cd; color: #856404; border: 1px solid #ffeeba; padding: 12px; border-radius: 6px;">
-            <strong>⚠ Hạn chế Địa lý từ Google Gemini API:</strong>
-            <p style="margin: 6px 0;">${errJson.error}</p>
-            <p style="margin: 4px 0; font-size: 13px; color: #664d03;">${errJson.detail || "Cloudflare Edge Node đang ở vùng bị Google chặn. Dự án đã kích hoạt cấu hình placement trong wrangler.jsonc."}</p>
-          </div>
-        `;
-                appendMessage("Hệ thống", locationWarningHtml, true);
-                return;
-            }
-            throw new Error(errJson.error || `Lỗi máy chủ (${response.status})`);
+            renderErrorCard(errJson, () => btnRecall.click());
+            return;
         }
         const data = await response.json();
+        // Nếu server trả errorCode (lỗi có cấu trúc)
+        if (data.errorCode) {
+            renderErrorCard(data, () => btnRecall.click());
+            return;
+        }
         if (data.empty) {
             appendMessage("SBE Mentor", `<p style="color: #666; font-style: italic;">${data.message}</p>`);
             return;
@@ -439,11 +491,11 @@ btnRecall.addEventListener("click", async () => {
         appendMessage("SBE Mentor", recallHtml);
     }
     catch (error) {
-        if (error.message === "OFFLINE") {
-            appendMessage("Hệ thống", "Bạn đang mất kết nối mạng. Tính năng tổng kết yêu cầu kết nối tới Edge Server.", true);
+        if (error.name === "TypeError" && error.message.includes("fetch")) {
+            renderErrorCard({ errorCode: "ERR-OFFLINE", error: "Bạn đang mất kết nối mạng. Tính năng tổng kết yêu cầu kết nối tới Edge Server." });
         }
         else {
-            appendMessage("Hệ thống", "Lỗi tổng kết: " + error.message, true);
+            renderErrorCard({ errorCode: "ERR-CLIENT", error: "Đã xảy ra lỗi kết nối. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ." });
         }
     }
     finally {

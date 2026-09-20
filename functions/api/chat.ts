@@ -1,3 +1,5 @@
+import { logError, buildUserFacingError } from "./_logError";
+
 export async function onRequestPost(context: any) {
   const { request, env } = context;
 
@@ -20,13 +22,27 @@ export async function onRequestPost(context: any) {
 
     const apiKey = env.GEMINI_API_KEY;
     if (!apiKey) {
+      await logError(env.DB, {
+        error_code: "LOGIC_500",
+        source: "chat.ts",
+        action: scenarioContent ? "sendScenario" : "sendChat",
+        model: chosenModel,
+        week_id: currentWeek,
+        http_status: 500,
+        raw_error: "GEMINI_API_KEY không được cấu hình trong environment",
+        colo: request.cf?.colo,
+      });
       return new Response(
-        JSON.stringify({ error: "Chưa cấu hình API Key (GEMINI_API_KEY)" }),
+        JSON.stringify({
+          errorCode: "ERR-500",
+          error: "Đã xảy ra lỗi cấu hình dịch vụ. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
+        }),
         { status: 500, headers: { "Content-Type": "application/json" } },
       );
     }
 
     const isScenario = !!scenarioContent;
+    const actionLabel = isScenario ? "sendScenario" : "sendChat";
 
     // 1. Thiết lập System Prompt dựa trên chế độ (Đánh giá kịch bản hoặc Trò chuyện tự do)
     let systemPrompt = "";
@@ -172,48 +188,79 @@ export async function onRequestPost(context: any) {
       break;
     }
 
+    // ─── Xử lý lỗi từ Gemini API: ghi log kỹ thuật + trả thông điệp thân thiện ───
     if (!geminiResponse || !geminiResponse.ok) {
       const errText =
         lastErrText ||
         (geminiResponse
           ? await geminiResponse.text().catch(() => "")
           : "Unknown");
+      const httpStatus = geminiResponse?.status ?? 500;
       const colo = request.cf?.colo || "Local";
-      if (
-        errText.includes("User location is not supported") ||
-        errText.includes("FAILED_PRECONDITION")
-      ) {
-        console.error(
-          `[Gemini Location Blocked] Colo: ${colo}, Error: ${errText}`,
-        );
-        return new Response(
-          JSON.stringify({
-            error:
-              "Vị trí máy chủ chưa được Google Gemini API hỗ trợ (User location is not supported).",
-            detail: `Cloudflare Edge Node đang thực thi tại trạm '${colo}'. Dự án đã bật cấu hình placement: { region: 'gcp:us-central1' } trong wrangler.jsonc. Hãy deploy bản mới nhất lên Cloudflare hoặc cấu hình GEMINI_BASE_URL (Cloudflare AI Gateway) để tự động chuyển tiếp qua Hoa Kỳ.`,
-            isLocationBlocked: true,
-            colo: colo,
-          }),
-          { status: 400, headers: { "Content-Type": "application/json" } },
-        );
+
+      // Xác định error_code để ghi log
+      let logCode = `HTTP_${httpStatus}`;
+      if (httpStatus === 429 || errText.includes("RESOURCE_EXHAUSTED")) {
+        logCode = "QUOTA_429";
+      } else if (errText.includes("FAILED_PRECONDITION") || errText.includes("User location is not supported")) {
+        logCode = "LOCATION_400";
+      } else if (httpStatus === 404) {
+        logCode = "MODEL_404";
+      } else if (httpStatus === 503) {
+        logCode = "OVERLOAD_503";
+      } else if (httpStatus === 401 || httpStatus === 403) {
+        logCode = "AUTH_401";
       }
-      if (geminiResponse.status === 503) {
-        return new Response(
-          JSON.stringify({
-            error:
-              "Mô hình AI hiện đang quá tải trên hệ thống của Google (High Demand 503). Vui lòng thử lại sau giây lát hoặc chọn mô hình khác từ danh sách.",
-          }),
-          { status: 503, headers: { "Content-Type": "application/json" } },
-        );
+
+      // Trích xuất retry_after từ lỗi 429
+      let retryAfter: number | undefined;
+      if (httpStatus === 429) {
+        const retryMatch = errText.match(/"retryDelay":\s*"(\d+)(?:\.\d+)?s"/);
+        if (retryMatch) retryAfter = Math.ceil(parseFloat(retryMatch[1]));
       }
-      throw new Error(
-        `Gemini API Error (${geminiResponse.status}): ${errText}`,
+
+      // Ghi log kỹ thuật vào D1 (KHÔNG gửi về client)
+      await logError(env.DB, {
+        error_code: logCode,
+        source: "chat.ts",
+        action: actionLabel,
+        model: activeModel,
+        week_id: currentWeek,
+        http_status: httpStatus,
+        raw_error: errText,
+        retry_after: retryAfter,
+        colo,
+      });
+
+      // Trả thông điệp thân thiện về client
+      const userErr = buildUserFacingError(httpStatus, errText);
+      return new Response(
+        JSON.stringify({
+          errorCode: userErr.errorCode,
+          error: userErr.userMessage,
+          ...(userErr.retryAfterSeconds !== undefined && { retryAfterSeconds: userErr.retryAfterSeconds }),
+          ...(userErr.isQuota && { isQuota: true }),
+        }),
+        {
+          status: httpStatus === 429 ? 429 : (httpStatus >= 400 && httpStatus < 500 ? 400 : 503),
+          headers: { "Content-Type": "application/json" },
+        },
       );
     }
 
     const geminiData: any = await geminiResponse.json();
     const aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!aiText) {
+      await logError(env.DB, {
+        error_code: "LOGIC_500",
+        source: "chat.ts",
+        action: actionLabel,
+        model: activeModel,
+        week_id: currentWeek,
+        http_status: 200,
+        raw_error: "Gemini trả HTTP 200 nhưng không có candidates[0].content.parts[0].text. Response: " + JSON.stringify(geminiData).substring(0, 500),
+        colo: request.cf?.colo,
+      });
       throw new Error("Gemini không trả về nội dung hợp lệ.");
     }
 
@@ -261,16 +308,13 @@ export async function onRequestPost(context: any) {
     } else if (!parsedAIResponse || typeof parsedAIResponse !== "object") {
       parsedAIResponse = { message: String(aiText).trim() };
     } else if (!parsedAIResponse.message) {
-      // Khi AI trả JSON nhưng thiếu trường message
       parsedAIResponse.message =
         parsedAIResponse.text || parsedAIResponse.content || aiText.trim();
     }
 
-
     // 3. LƯU VÀO DATABASE CLOUDFLARE D1
     if (env.DB) {
       if (isScenario) {
-        // Lưu lịch sử kịch bản và phân tích
         await env.DB.prepare(
           "INSERT INTO Chat_History (week_id, role, content) VALUES (?, ?, ?), (?, ?, ?)",
         )
@@ -284,7 +328,6 @@ export async function onRequestPost(context: any) {
           )
           .run();
 
-        // Đóng gói dữ liệu Memory Block để lưu trữ dài hạn (RAG)
         const memoryBlock = {
           week: currentWeek,
           learned_concepts: parsedAIResponse.analysis?.learned_concepts || [],
@@ -299,7 +342,6 @@ export async function onRequestPost(context: any) {
           .bind(currentWeek, JSON.stringify(memoryBlock))
           .run();
       } else {
-        // Lưu lượt trò chuyện tự do
         await env.DB.prepare(
           "INSERT INTO Chat_History (week_id, role, content) VALUES (?, ?, ?), (?, ?, ?)",
         )
@@ -331,8 +373,23 @@ export async function onRequestPost(context: any) {
       },
     );
   } catch (error: any) {
+    // Lỗi runtime/logic không mong muốn — ghi log kỹ thuật, trả thông điệp thân thiện
+    try {
+      await logError(env.DB, {
+        error_code: "LOGIC_500",
+        source: "chat.ts",
+        action: "unknown",
+        http_status: 500,
+        raw_error: error?.stack || error?.message || String(error),
+        colo: request.cf?.colo,
+      });
+    } catch { /* không để lỗi log phá vỡ response */ }
+
     return new Response(
-      JSON.stringify({ error: "Lỗi máy chủ: " + error.message }),
+      JSON.stringify({
+        errorCode: "ERR-500",
+        error: "Đã xảy ra lỗi trong quá trình xử lý yêu cầu. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
+      }),
       {
         status: 500,
         headers: { "Content-Type": "application/json" },
