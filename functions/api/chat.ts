@@ -51,24 +51,22 @@ export async function onRequestPost(context: any) {
     if (isScenario) {
       // Phân cấp tiêu chí đánh giá theo tuần học
       const weekRubric = currentWeek <= 2
-        ? `=== TIÊU CHÍ TUẦN ${currentWeek} (Cơ bản — Chương 3-6) ===
-[F1] Feature title: Phải là tên TÍNH NĂNG NGHIỆP VỤ, không phải tên kỹ thuật. VD tốt: "User Login". VD xấu: "Authentication Module".
-[G1] Given (Ngữ cảnh): Chỉ mô tả trạng thái/ngữ cảnh ban đầu. KHÔNG chứa hành động. Dùng thì hiện tại hoặc quá khứ hoàn thành.
-[W1] When (Hành động): Chỉ được có MỘT hành động duy nhất mỗi scenario. Dùng active voice.
-[T1] Then (Kết quả): Phải mô tả kết quả CÓ THỂ QUAN SÁT và đủ cụ thể. Không được mơ hồ.
-[S1] Độ dài: Scenario tốt thường có 3-7 steps. Trên 10 steps = Scenario Pollution (quá tải).`
+        ? `=== TIÊU CHÍ TUẦN ${currentWeek} (Cơ bản — Chương 3) ===
+[G1] Passive Givens: \`Given\` chỉ mô tả ngữ cảnh/trạng thái ban đầu, viết ở thể bị động/thì quá khứ. TUYỆT ĐỐI KHÔNG chứa hành động của user.
+[W1] Single User Task: Chỉ sử dụng MỘT bước \`When\` duy nhất đại diện cho hành động chính (thiết kế theo Screenplay pattern). Không dùng 'And' nối hành động trong 'When'.
+[T1] Business Outcomes: \`Then\` phải đo lường được ở góc độ nghiệp vụ. Cú pháp khuyến nghị: "<actor> should be able to <achieve a result>".
+[A1] Real Actors / Personas: Sử dụng tên người thật (VD: "Mike", "Simona") làm actor thay vì từ chung chung ("user", "admin") để thúc đẩy Outside-in development.`
         : `=== TIÊU CHÍ TUẦN ${currentWeek} (Nâng cao — Chương 3-8, ĐẦY ĐỦ) ===
-[F1] Feature title: Phải là tên TÍNH NĂNG NGHIỆP VỤ, không phải tên kỹ thuật.
-[G1] Given: Chỉ ngữ cảnh, KHÔNG chứa action. Dùng thì hiện tại/quá khứ hoàn thành.
-[W1] When: MỘT hành động duy nhất. Active voice. Không dùng AND trong When.
-[T1] Then: Kết quả quan sát được, đủ cụ thể. Không mơ hồ.
-[S1] Độ dài: 3-7 steps lý tưởng. Trên 10 steps = Scenario Pollution.
-[A1] ANTI-PATTERN "Incidental Details" (Ch.7): Không thêm chi tiết kỹ thuật không cần thiết (ID số, URL, màu sắc button, tên field).
-[A2] ANTI-PATTERN "UI-Centered" (Ch.7): Không mô tả thao tác UI. Dùng intent nghiệp vụ. Xấu: "clicks Submit button". Tốt: "submits the form".
-[A3] ANTI-PATTERN "Conjunction Steps" (Ch.7): Mỗi step làm một việc duy nhất. Không dùng "AND" nối 2 action trong 1 step.
-[A4] ANTI-PATTERN "Vague Steps" (Ch.7): Mỗi step phải đủ cụ thể và có thể kiểm chứng. Tránh "some data", "valid information".
-[D1] Declarative Style (Ch.6): Mô tả WHAT (cái gì xảy ra), không HOW (làm như thế nào từng bước UI).
-[U1] Ubiquitous Language (Ch.3): Dùng thuật ngữ domain từ nghiệp vụ. Tránh từ kỹ thuật: database, API, null, boolean, query.`;
+[G1] Passive Givens: \`Given\` thiết lập trạng thái ban đầu, viết ở thể bị động.
+[W1] Single User Task: Chỉ dùng MỘT bước \`When\` duy nhất đại diện hành động chính.
+[T1] Business Outcomes: \`Then\` mô tả hậu quả nghiệp vụ đo lường được.
+[A1] Real Actors / Personas: Sử dụng tên người thật làm actor.
+[D1] Declarative Style (Ch.3/7): Mô tả "WHAT" (mục đích), tuyệt đối không mô tả "HOW" (thao tác UI chi tiết như click button, fill form). Vi phạm gọi là "UI-Centered Scenarios".
+[U1] Ubiquitous Language (Ch.1/7): Dùng ngôn ngữ nghiệp vụ. Cấm chi tiết kỹ thuật (database, API, ID, boolean, màu sắc). Vi phạm gọi là "Incidental Details".
+[E1] Illustrative, not Exhaustive (Ch.5): Bảng \`Examples\` chỉ chứa các ví dụ tiêu biểu (Happy/Angry/Edge cases). Không dùng để test vét cạn hay validate định dạng dữ liệu (email, độ dài chuỗi).
+[E2] The Goldilocks Principle (Ch.5): Khi test điều kiện biên (Classes of equivalence), phải có 3 ví dụ: dưới biên, tại biên, qua biên.
+[S1] No SQL Tables (Ch.5): Không cấu trúc các bước \`Given\` hoặc bảng \`Examples\` giống bảng database (tránh ID, foreign_key).
+[O1] Abilities/Business Needs (Ch.8): Ưu tiên \`Ability\` (chức năng) hoặc \`Business Need\` (phi chức năng như bảo mật, hiệu suất) thay vì \`Feature\` chung chung.`;
 
       systemPrompt = `Bạn là SBE Mentor — chuyên gia đánh giá kịch bản Gherkin theo tiêu chuẩn của cuốn sách "Writing Great Specifications Using Specification by Example and Gherkin" (Kamil Nicieja, Manning Publications, 2017).
 Người học đang ở Tuần ${currentWeek} của khóa học 4 tuần.
