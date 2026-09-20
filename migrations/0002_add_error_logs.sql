@@ -17,3 +17,4 @@ CREATE TABLE IF NOT EXISTS Error_Logs (
 
 CREATE INDEX IF NOT EXISTS idx_error_logs_code ON Error_Logs(error_code);
 CREATE INDEX IF NOT EXISTS idx_error_logs_created ON Error_Logs(created_at);
+

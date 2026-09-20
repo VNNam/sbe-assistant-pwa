@@ -11,33 +11,30 @@
 // ─────────────────────────────────────────────
 
 export interface ErrorLogEntry {
-  error_code: string;   // VD: "QUOTA_429", "LOCATION_400", "LOGIC_500"
-  source: string;       // VD: "chat.ts", "analyze.ts"
-  action?: string;      // VD: "sendScenario", "sendChat", "recall"
-  model?: string;       // Model đang dùng lúc lỗi xảy ra
-  week_id?: number;     // Tuần học đang thực hiện
+  error_code: string; // VD: "QUOTA_429", "LOCATION_400", "LOGIC_500"
+  source: string; // VD: "chat.ts", "analyze.ts"
+  action?: string; // VD: "sendScenario", "sendChat", "recall"
+  model?: string; // Model đang dùng lúc lỗi xảy ra
+  week_id?: number; // Tuần học đang thực hiện
   http_status?: number; // Mã HTTP từ Gemini API
-  raw_error?: string;   // Toàn bộ error text/JSON kỹ thuật (chỉ lưu DB)
+  raw_error?: string; // Toàn bộ error text/JSON kỹ thuật (chỉ lưu DB)
   retry_after?: number; // Giây cần chờ (cho lỗi 429)
-  colo?: string;        // Cloudflare edge node
+  colo?: string; // Cloudflare edge node
 }
 
 export interface UserFacingError {
-  errorCode: string;          // Mã lỗi ngắn gọn, VD: "ERR-429"
-  userMessage: string;        // Thông điệp thân thiện hiển thị lên UI
+  errorCode: string; // Mã lỗi ngắn gọn, VD: "ERR-429"
+  userMessage: string; // Thông điệp thân thiện hiển thị lên UI
   retryAfterSeconds?: number; // Nếu có, cho phép UI đếm ngược & retry
-  isQuota?: boolean;          // true nếu là lỗi hết quota
-  isOffline?: boolean;        // true nếu là lỗi mất kết nối
+  isQuota?: boolean; // true nếu là lỗi hết quota
+  isOffline?: boolean; // true nếu là lỗi mất kết nối
 }
 
 // ─────────────────────────────────────────────
 // Hàm ghi log vào D1
 // ─────────────────────────────────────────────
 
-export async function logError(
-  db: any,
-  entry: ErrorLogEntry,
-): Promise<void> {
+export async function logError(db: any, entry: ErrorLogEntry): Promise<void> {
   if (!db) return; // Graceful: không crash nếu DB chưa được bind
   try {
     await db
@@ -73,16 +70,19 @@ export function buildUserFacingError(
   httpStatus: number,
   rawErrorText: string,
 ): UserFacingError {
-
   // 429 — Quota hết (RESOURCE_EXHAUSTED)
   if (httpStatus === 429 || rawErrorText.includes("RESOURCE_EXHAUSTED")) {
     const retryMatch = rawErrorText.match(/"retryDelay":\s*"(\d+)(?:\.\d+)?s"/);
-    const retrySec = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) : undefined;
+    const retrySec = retryMatch
+      ? Math.ceil(parseFloat(retryMatch[1]))
+      : undefined;
     return {
       errorCode: "ERR-429",
       userMessage:
         "Hệ thống AI tạm thời không thể xử lý yêu cầu do đạt giới hạn sử dụng trong ngày." +
-        (retrySec ? ` Vui lòng thử lại sau ${retrySec} giây.` : " Vui lòng thử lại sau ít phút.") +
+        (retrySec
+          ? ` Vui lòng thử lại sau ${retrySec} giây.`
+          : " Vui lòng thử lại sau ít phút.") +
         " Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
       retryAfterSeconds: retrySec,
       isQuota: true,

@@ -35,7 +35,8 @@ export async function onRequestPost(context: any) {
       return new Response(
         JSON.stringify({
           errorCode: "ERR-500",
-          error: "Đã xảy ra lỗi cấu hình dịch vụ. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
+          error:
+            "Đã xảy ra lỗi cấu hình dịch vụ. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
         }),
         { status: 500, headers: { "Content-Type": "application/json" } },
       );
@@ -48,21 +49,67 @@ export async function onRequestPost(context: any) {
     let systemPrompt = "";
 
     if (isScenario) {
-      systemPrompt = `Bạn là SBE Mentor, một chuyên gia về Specification by Example.
-      Khóa học có 4 tuần. Người học đang ở Tuần ${currentWeek}.
-      Hãy phân tích kịch bản Gherkin sau của người học:
-      ${scenarioContent}
+      // Phân cấp tiêu chí đánh giá theo tuần học
+      const weekRubric = currentWeek <= 2
+        ? `=== TIÊU CHÍ TUẦN ${currentWeek} (Cơ bản — Chương 3-6) ===
+[F1] Feature title: Phải là tên TÍNH NĂNG NGHIỆP VỤ, không phải tên kỹ thuật. VD tốt: "User Login". VD xấu: "Authentication Module".
+[G1] Given (Ngữ cảnh): Chỉ mô tả trạng thái/ngữ cảnh ban đầu. KHÔNG chứa hành động. Dùng thì hiện tại hoặc quá khứ hoàn thành.
+[W1] When (Hành động): Chỉ được có MỘT hành động duy nhất mỗi scenario. Dùng active voice.
+[T1] Then (Kết quả): Phải mô tả kết quả CÓ THỂ QUAN SÁT và đủ cụ thể. Không được mơ hồ.
+[S1] Độ dài: Scenario tốt thường có 3-7 steps. Trên 10 steps = Scenario Pollution (quá tải).`
+        : `=== TIÊU CHÍ TUẦN ${currentWeek} (Nâng cao — Chương 3-8, ĐẦY ĐỦ) ===
+[F1] Feature title: Phải là tên TÍNH NĂNG NGHIỆP VỤ, không phải tên kỹ thuật.
+[G1] Given: Chỉ ngữ cảnh, KHÔNG chứa action. Dùng thì hiện tại/quá khứ hoàn thành.
+[W1] When: MỘT hành động duy nhất. Active voice. Không dùng AND trong When.
+[T1] Then: Kết quả quan sát được, đủ cụ thể. Không mơ hồ.
+[S1] Độ dài: 3-7 steps lý tưởng. Trên 10 steps = Scenario Pollution.
+[A1] ANTI-PATTERN "Incidental Details" (Ch.7): Không thêm chi tiết kỹ thuật không cần thiết (ID số, URL, màu sắc button, tên field).
+[A2] ANTI-PATTERN "UI-Centered" (Ch.7): Không mô tả thao tác UI. Dùng intent nghiệp vụ. Xấu: "clicks Submit button". Tốt: "submits the form".
+[A3] ANTI-PATTERN "Conjunction Steps" (Ch.7): Mỗi step làm một việc duy nhất. Không dùng "AND" nối 2 action trong 1 step.
+[A4] ANTI-PATTERN "Vague Steps" (Ch.7): Mỗi step phải đủ cụ thể và có thể kiểm chứng. Tránh "some data", "valid information".
+[D1] Declarative Style (Ch.6): Mô tả WHAT (cái gì xảy ra), không HOW (làm như thế nào từng bước UI).
+[U1] Ubiquitous Language (Ch.3): Dùng thuật ngữ domain từ nghiệp vụ. Tránh từ kỹ thuật: database, API, null, boolean, query.`;
 
-      Trả về đúng cấu trúc JSON sau (chỉ JSON, không dùng markdown block):
+      systemPrompt = `Bạn là SBE Mentor — chuyên gia đánh giá kịch bản Gherkin theo tiêu chuẩn của cuốn sách "Writing Great Specifications Using Specification by Example and Gherkin" (Kamil Nicieja, Manning Publications, 2017).
+Người học đang ở Tuần ${currentWeek} của khóa học 4 tuần.
+
+${weekRubric}
+
+Kịch bản Gherkin cần đánh giá:
+\`\`\`gherkin
+${scenarioContent}
+\`\`\`
+
+Hãy phân tích nghiêm túc kịch bản trên theo từng tiêu chí phù hợp với tuần học. Với mỗi vi phạm tìm thấy, chỉ rõ: mã tiêu chí, step cụ thể vi phạm, giải thích tại sao vi phạm (kèm tham chiếu chương sách nếu có), và cách sửa đúng.
+
+QUAN TRỌNG: Chỉ trả về JSON thuần túy, bắt đầu bằng { và kết thúc bằng }. Không có markdown, không có text bên ngoài JSON.
+
+Cấu trúc JSON bắt buộc:
+{
+  "message": "Nhận xét tổng quan ngắn gọn: điểm mạnh và vấn đề chính cần cải thiện.",
+  "analysis": {
+    "style_score": 75,
+    "learned_concepts": ["Tên khái niệm đã áp dụng đúng theo sách"],
+    "violations": [
       {
-        "message": "Nhận xét ngắn gọn, chỉ ra điểm sáng và điểm cần cải thiện.",
-        "analysis": {
-          "learned_concepts": ["Khái niệm 1", "Khái niệm 2"],
-          "mistakes": ["Lỗi sai 1", "Lỗi sai 2"],
-          "best_scenario": "Viết lại kịch bản Gherkin một cách chuẩn xác nhất.",
-          "recommendations": ["Lời khuyên hành động 1", "Lời khuyên 2"]
-        }
-      }`;
+        "code": "[A2]",
+        "severity": "major",
+        "step": "When user clicks the Submit button",
+        "explanation": "UI-Centered: Bước này mô tả thao tác UI thay vì intent nghiệp vụ (Manning Ch.7, tr.89). Feature file nên mô tả WHAT, không HOW.",
+        "fix": "When user submits the registration form"
+      }
+    ],
+    "mistakes": ["Mô tả ngắn gọn lỗi sai chính (tương thích với bản cũ)"],
+    "best_scenario": "Toàn bộ kịch bản Gherkin được viết lại đúng chuẩn Manning.",
+    "recommendations": ["Lời khuyên hành động cụ thể để cải thiện"]
+  }
+}
+
+Quy tắc cho các trường:
+- "style_score": Số nguyên 0-100. 90-100 = Xuất sắc. 70-89 = Tốt. 50-69 = Cần cải thiện. <50 = Cần viết lại.
+- "violations[].severity": "major" (vi phạm cấu trúc Given/When/Then, anti-pattern nặng) hoặc "minor" (vi phạm style, ngôn ngữ).
+- "violations": Mảng rỗng [] nếu không có vi phạm.
+- "best_scenario": Bắt buộc phải có — viết lại kịch bản theo chuẩn Manning đầy đủ.`;
     } else {
       // Đọc tối đa 4 lượt chat gần nhất để làm giàu ngữ cảnh
       let recentChatContext = "";
@@ -112,7 +159,6 @@ export async function onRequestPost(context: any) {
       - TUYỆT ĐỐI không thêm bất kỳ text nào bên ngoài JSON (không có "gherkin", không có "Feature:", không có markdown code block như \`\`\`json, không có lời dẫn, không có giải thích sau JSON).
       - Cấu trúc JSON bắt buộc:
       {"message": "Nội dung phản hồi hoàn chỉnh của Mentor (hỗ trợ markdown cơ bản nếu cần nhấn mạnh hoặc viết code ví dụ)."}`;
-
     }
 
     // 2. Gọi Gemini REST API với cơ chế Multi-Candidate Fallback & Retry
@@ -202,7 +248,10 @@ export async function onRequestPost(context: any) {
       let logCode = `HTTP_${httpStatus}`;
       if (httpStatus === 429 || errText.includes("RESOURCE_EXHAUSTED")) {
         logCode = "QUOTA_429";
-      } else if (errText.includes("FAILED_PRECONDITION") || errText.includes("User location is not supported")) {
+      } else if (
+        errText.includes("FAILED_PRECONDITION") ||
+        errText.includes("User location is not supported")
+      ) {
         logCode = "LOCATION_400";
       } else if (httpStatus === 404) {
         logCode = "MODEL_404";
@@ -238,11 +287,18 @@ export async function onRequestPost(context: any) {
         JSON.stringify({
           errorCode: userErr.errorCode,
           error: userErr.userMessage,
-          ...(userErr.retryAfterSeconds !== undefined && { retryAfterSeconds: userErr.retryAfterSeconds }),
+          ...(userErr.retryAfterSeconds !== undefined && {
+            retryAfterSeconds: userErr.retryAfterSeconds,
+          }),
           ...(userErr.isQuota && { isQuota: true }),
         }),
         {
-          status: httpStatus === 429 ? 429 : (httpStatus >= 400 && httpStatus < 500 ? 400 : 503),
+          status:
+            httpStatus === 429
+              ? 429
+              : httpStatus >= 400 && httpStatus < 500
+                ? 400
+                : 503,
           headers: { "Content-Type": "application/json" },
         },
       );
@@ -258,7 +314,9 @@ export async function onRequestPost(context: any) {
         model: activeModel,
         week_id: currentWeek,
         http_status: 200,
-        raw_error: "Gemini trả HTTP 200 nhưng không có candidates[0].content.parts[0].text. Response: " + JSON.stringify(geminiData).substring(0, 500),
+        raw_error:
+          "Gemini trả HTTP 200 nhưng không có candidates[0].content.parts[0].text. Response: " +
+          JSON.stringify(geminiData).substring(0, 500),
         colo: request.cf?.colo,
       });
       throw new Error("Gemini không trả về nội dung hợp lệ.");
@@ -383,12 +441,15 @@ export async function onRequestPost(context: any) {
         raw_error: error?.stack || error?.message || String(error),
         colo: request.cf?.colo,
       });
-    } catch { /* không để lỗi log phá vỡ response */ }
+    } catch {
+      /* không để lỗi log phá vỡ response */
+    }
 
     return new Response(
       JSON.stringify({
         errorCode: "ERR-500",
-        error: "Đã xảy ra lỗi trong quá trình xử lý yêu cầu. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
+        error:
+          "Đã xảy ra lỗi trong quá trình xử lý yêu cầu. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
       }),
       {
         status: 500,

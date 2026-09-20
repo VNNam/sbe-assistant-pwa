@@ -419,6 +419,13 @@
           </div>
           <div class="toolbar">
             <button
+              id="btnStandards"
+              title="Xem tiêu chuẩn đánh giá Gherkin theo sách Manning"
+              style="background:#6c757d;"
+            >
+              📖 Tiêu chuẩn
+            </button>
+            <button
               id="btnSendScenario"
               title="Gửi kịch bản để AI phân tích 5 khối kiến thức"
             >
@@ -429,7 +436,88 @@
       </div>
     </div>
 
+    <!-- Panel tiêu chuẩn Manning — ẩn theo mặc định -->
+    <div id="standardsOverlay" style="
+      display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);
+      z-index:1000;overflow-y:auto;padding:20px;box-sizing:border-box;
+    ">
+      <div style="
+        max-width:720px;margin:0 auto;background:#fff;border-radius:10px;
+        overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.3);
+      ">
+        <div style="background:#007acc;color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;">
+          <strong style="font-size:15px;">📖 Tiêu chuẩn đánh giá Gherkin — Manning Publications</strong>
+          <button id="btnCloseStandards" style="background:rgba(255,255,255,0.2);border:none;color:#fff;font-size:18px;cursor:pointer;border-radius:4px;padding:2px 8px;line-height:1.2;">✕</button>
+        </div>
+        <div style="padding:16px 18px;font-size:13.5px;line-height:1.6;color:#333;">
+          <p style="margin:0 0 12px 0;color:#555;font-style:italic;">
+            Nguồn: <em>"Writing Great Specifications Using Specification by Example and Gherkin"</em> — Kamil Nicieja, Manning Publications (2017).
+          </p>
+
+          <h4 style="margin:0 0 8px 0;color:#007acc;border-bottom:2px solid #007acc;padding-bottom:4px;">Tiêu chí cơ bản (Tuần 1–2, Chương 3–6)</h4>
+          <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13px;">
+            <thead><tr style="background:#e3f2fd;">
+              <th style="padding:6px 8px;border:1px solid #b3d4fc;text-align:left;width:60px;">Mã</th>
+              <th style="padding:6px 8px;border:1px solid #b3d4fc;text-align:left;">Tiêu chí</th>
+              <th style="padding:6px 8px;border:1px solid #b3d4fc;text-align:left;width:60px;">Chương</th>
+            </tr></thead>
+            <tbody>
+              <tr><td style="padding:6px 8px;border:1px solid #ddd;font-weight:700;color:#007acc;">[F1]</td><td style="padding:6px 8px;border:1px solid #ddd;">Feature title phải là tên <strong>tính năng nghiệp vụ</strong>, không phải tên kỹ thuật.<br><span style="color:#888;font-size:12px;">✔ "User Login" &nbsp;✖ "Authentication Module"</span></td><td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">Ch.3</td></tr>
+              <tr style="background:#fafafa;"><td style="padding:6px 8px;border:1px solid #ddd;font-weight:700;color:#007acc;">[G1]</td><td style="padding:6px 8px;border:1px solid #ddd;"><strong>Given</strong>: Chỉ mô tả ngữ cảnh/trạng thái ban đầu. <strong>KHÔNG chứa action</strong>. Dùng thì hiện tại hoặc quá khứ hoàn thành.</td><td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">Ch.5</td></tr>
+              <tr><td style="padding:6px 8px;border:1px solid #ddd;font-weight:700;color:#007acc;">[W1]</td><td style="padding:6px 8px;border:1px solid #ddd;"><strong>When</strong>: Chỉ <strong>một hành động duy nhất</strong> mỗi scenario. Active voice. Không dùng AND trong When.</td><td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">Ch.5</td></tr>
+              <tr style="background:#fafafa;"><td style="padding:6px 8px;border:1px solid #ddd;font-weight:700;color:#007acc;">[T1]</td><td style="padding:6px 8px;border:1px solid #ddd;"><strong>Then</strong>: Kết quả phải <strong>có thể quan sát và kiểm chứng</strong>. Không được mơ hồ.</td><td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">Ch.5–6</td></tr>
+              <tr><td style="padding:6px 8px;border:1px solid #ddd;font-weight:700;color:#007acc;">[S1]</td><td style="padding:6px 8px;border:1px solid #ddd;">Độ dài lý tưởng: <strong>3–7 steps</strong>. Trên 10 steps = Scenario Pollution (quá tải).</td><td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">Ch.4</td></tr>
+            </tbody>
+          </table>
+
+          <h4 style="margin:0 0 8px 0;color:#d9534f;border-bottom:2px solid #d9534f;padding-bottom:4px;">Anti-patterns cần tránh (Tuần 3–4, Chương 7)</h4>
+          <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13px;">
+            <thead><tr style="background:#fce8e8;">
+              <th style="padding:6px 8px;border:1px solid #f5c2c2;text-align:left;width:60px;">Mã</th>
+              <th style="padding:6px 8px;border:1px solid #f5c2c2;text-align:left;">Anti-pattern</th>
+              <th style="padding:6px 8px;border:1px solid #f5c2c2;text-align:left;width:60px;">Chương</th>
+            </tr></thead>
+            <tbody>
+              <tr><td style="padding:6px 8px;border:1px solid #ddd;font-weight:700;color:#d9534f;">[A1]</td><td style="padding:6px 8px;border:1px solid #ddd;"><strong>Incidental Details</strong>: Không thêm chi tiết kỹ thuật không cần thiết (ID số, URL, màu sắc button, tên database field).</td><td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">Ch.7</td></tr>
+              <tr style="background:#fafafa;"><td style="padding:6px 8px;border:1px solid #ddd;font-weight:700;color:#d9534f;">[A2]</td><td style="padding:6px 8px;border:1px solid #ddd;"><strong>UI-Centered Scenarios</strong>: Không mô tả thao tác UI. Dùng intent nghiệp vụ.<br><span style="color:#888;font-size:12px;">✖ "clicks the Submit button" &nbsp;✔ "submits the registration form"</span></td><td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">Ch.7</td></tr>
+              <tr><td style="padding:6px 8px;border:1px solid #ddd;font-weight:700;color:#d9534f;">[A3]</td><td style="padding:6px 8px;border:1px solid #ddd;"><strong>Conjunction Steps</strong>: Mỗi step làm một việc duy nhất. Không dùng "AND" nối 2 action trong cùng 1 step.</td><td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">Ch.7</td></tr>
+              <tr style="background:#fafafa;"><td style="padding:6px 8px;border:1px solid #ddd;font-weight:700;color:#d9534f;">[A4]</td><td style="padding:6px 8px;border:1px solid #ddd;"><strong>Vague Steps</strong>: Mỗi step phải đủ cụ thể và có thể kiểm chứng.<br><span style="color:#888;font-size:12px;">✖ "Given some data exists" &nbsp;✔ "Given a registered customer exists"</span></td><td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">Ch.7</td></tr>
+            </tbody>
+          </table>
+
+          <h4 style="margin:0 0 8px 0;color:#f0ad4e;border-bottom:2px solid #f0ad4e;padding-bottom:4px;">Tiêu chí nâng cao (Tuần 3–4, Chương 6 & 3)</h4>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead><tr style="background:#fff8e1;">
+              <th style="padding:6px 8px;border:1px solid #ffe082;text-align:left;width:60px;">Mã</th>
+              <th style="padding:6px 8px;border:1px solid #ffe082;text-align:left;">Tiêu chí</th>
+              <th style="padding:6px 8px;border:1px solid #ffe082;text-align:left;width:60px;">Chương</th>
+            </tr></thead>
+            <tbody>
+              <tr><td style="padding:6px 8px;border:1px solid #ddd;font-weight:700;color:#b8860b;">[D1]</td><td style="padding:6px 8px;border:1px solid #ddd;"><strong>Declarative Style</strong>: Mô tả <strong>WHAT</strong> (điều gì xảy ra), không HOW (từng bước UI cụ thể).</td><td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">Ch.6</td></tr>
+              <tr style="background:#fafafa;"><td style="padding:6px 8px;border:1px solid #ddd;font-weight:700;color:#b8860b;">[U1]</td><td style="padding:6px 8px;border:1px solid #ddd;"><strong>Ubiquitous Language</strong>: Dùng thuật ngữ domain từ nghiệp vụ. Tránh từ kỹ thuật: <code>database</code>, <code>API</code>, <code>null</code>, <code>boolean</code>, <code>query</code>.</td><td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">Ch.3</td></tr>
+            </tbody>
+          </table>
+
+          <div style="margin-top:14px;padding:10px;background:#e3f2fd;border-radius:6px;font-size:12.5px;color:#0d47a1;">
+            💡 <strong>Style Score:</strong> 90–100 Xuất sắc · 70–89 Tốt · 50–69 Cần cải thiện · &lt;50 Cần viết lại
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Nạp file JS sau khi biên dịch từ TypeScript -->
     <script type="module" src="js/index.js"></script>
+    <script>
+      // Toggle panel tiêu chuẩn Manning
+      document.getElementById('btnStandards').addEventListener('click', () => {
+        document.getElementById('standardsOverlay').style.display = 'block';
+      });
+      document.getElementById('btnCloseStandards').addEventListener('click', () => {
+        document.getElementById('standardsOverlay').style.display = 'none';
+      });
+      document.getElementById('standardsOverlay').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+      });
+    </script>
   </body>
 </html>

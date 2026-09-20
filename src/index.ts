@@ -227,15 +227,20 @@ function appendMessage(sender: string, htmlContent: string, isSystem = false) {
  * renderErrorCard — Hiển thị thông báo lỗi thân thiện dạng card lên chat history.
  * KHÔNG hiển thị thông tin kỹ thuật (stack trace, raw JSON) lên giao diện.
  */
-function renderErrorCard(errData: {
-  errorCode?: string;
-  error?: string;
-  retryAfterSeconds?: number;
-  isQuota?: boolean;
-  isOffline?: boolean;
-}, retryCallback?: () => void) {
+function renderErrorCard(
+  errData: {
+    errorCode?: string;
+    error?: string;
+    retryAfterSeconds?: number;
+    isQuota?: boolean;
+    isOffline?: boolean;
+  },
+  retryCallback?: () => void,
+) {
   const code = errData.errorCode || "ERR";
-  const message = errData.error || "Đã xảy ra lỗi. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.";
+  const message =
+    errData.error ||
+    "Đã xảy ra lỗi. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.";
   const isQuota = !!errData.isQuota;
   const retryAfter = errData.retryAfterSeconds;
 
@@ -315,7 +320,129 @@ function renderErrorCard(errData: {
   }
 }
 
+/**
+ * renderScenarioAnalysis — Hiển thị kết quả phân tích kịch bản Gherkin theo chuẩn Manning.
+ * Gồm: style_score (progress bar), violations (badge theo severity), learned concepts,
+ * best_scenario (code block Gherkin chuẩn), recommendations.
+ */
+function renderScenarioAnalysis(data: any) {
+  const analysis = data.analysis || {};
+  const score = typeof analysis.style_score === "number" ? analysis.style_score : null;
+  const violations: any[] = Array.isArray(analysis.violations) ? analysis.violations : [];
+  const learned: string[] = Array.isArray(analysis.learned_concepts) ? analysis.learned_concepts : [];
+  const mistakes: string[] = Array.isArray(analysis.mistakes) ? analysis.mistakes : [];
+  const recommendations: string[] = Array.isArray(analysis.recommendations) ? analysis.recommendations : [];
+  const bestScenario: string = analysis.best_scenario || "";
 
+  // ── Score color
+  const scoreColor = score === null ? "#6c757d"
+    : score >= 90 ? "#28a745"
+    : score >= 70 ? "#007acc"
+    : score >= 50 ? "#f0ad4e"
+    : "#d9534f";
+  const scoreLabel = score === null ? "–"
+    : score >= 90 ? "Xuất sắc"
+    : score >= 70 ? "Tốt"
+    : score >= 50 ? "Cần cải thiện"
+    : "Cần viết lại";
+
+  let html = `<div style="border:1px solid #ddd;border-radius:8px;overflow:hidden;margin-top:4px;background:#fff;font-size:13.5px;line-height:1.55;">`;
+
+  // ── Header: tổng quan + score
+  html += `
+    <div style="background:#f8f9fa;padding:12px 14px;border-bottom:2px solid ${scoreColor};">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+        <strong style="color:#007acc;font-size:14px;">📋 Phân tích kịch bản — Tiêu chuẩn Manning</strong>
+        ${score !== null ? `<span style="background:${scoreColor};color:#fff;padding:3px 10px;border-radius:12px;font-weight:bold;font-size:12px;white-space:nowrap;">
+          Style Score: ${score}/100 — ${scoreLabel}
+        </span>` : ""}
+      </div>
+      ${score !== null ? `<div style="margin-top:8px;background:#e9ecef;border-radius:4px;height:6px;overflow:hidden;">
+        <div style="width:${score}%;height:100%;background:${scoreColor};border-radius:4px;transition:width 0.4s;"></div>
+      </div>` : ""}
+      <p style="margin:10px 0 0 0;color:#333;">${escapeHtml(data.message || "")}</p>
+    </div>`;
+
+  // ── Violations (major → đỏ, minor → cam)
+  const majorViolations = violations.filter(v => v.severity === "major");
+  const minorViolations = violations.filter(v => v.severity === "minor");
+
+  if (violations.length > 0) {
+    html += `<div style="padding:12px 14px;border-bottom:1px solid #eee;">`;
+    html += `<strong style="color:#333;">⚠ Vi phạm tiêu chuẩn (${violations.length})</strong>`;
+
+    const renderViolationGroup = (list: any[], color: string, label: string) => {
+      if (list.length === 0) return "";
+      let g = `<div style="margin-top:10px;">
+        <div style="font-size:12px;color:${color};font-weight:600;margin-bottom:6px;">${label}</div>`;
+      list.forEach(v => {
+        const code = escapeHtml(v.code || "");
+        const step = escapeHtml(v.step || "");
+        const explanation = escapeHtml(v.explanation || "");
+        const fix = escapeHtml(v.fix || "");
+        g += `<div style="margin-bottom:10px;padding:8px 10px;border-left:3px solid ${color};background:${color}14;border-radius:0 4px 4px 0;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+            <span style="background:${color};color:#fff;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:700;white-space:nowrap;">${code}</span>
+            <code style="background:#f4f4f4;padding:2px 6px;border-radius:3px;font-size:12px;color:#c7254e;word-break:break-all;">${step}</code>
+          </div>
+          <p style="margin:4px 0 0 0;color:#555;font-size:13px;">${explanation}</p>
+          ${fix ? `<p style="margin:4px 0 0 0;color:#28a745;font-size:13px;">✔ Sửa thành: <code style="background:#f0fff4;padding:1px 5px;border-radius:3px;">${fix}</code></p>` : ""}
+        </div>`;
+      });
+      g += `</div>`;
+      return g;
+    };
+
+    html += renderViolationGroup(majorViolations, "#d9534f", "🔴 Vi phạm nghiêm trọng (Major)");
+    html += renderViolationGroup(minorViolations, "#f0ad4e", "🟡 Vi phạm nhẹ (Minor)");
+    html += `</div>`;
+  } else {
+    html += `<div style="padding:10px 14px;border-bottom:1px solid #eee;background:#f0fff4;">
+      <span style="color:#28a745;font-weight:600;">✔ Không phát hiện vi phạm tiêu chuẩn Manning</span>
+    </div>`;
+  }
+
+  // ── Learned concepts (xanh lá)
+  if (learned.length > 0) {
+    html += `<div style="padding:10px 14px;border-bottom:1px solid #eee;border-left:3px solid #28a745;">
+      <strong style="color:#28a745;">✔ Khái niệm đã áp dụng đúng:</strong>
+      <ul style="margin:6px 0 0 0;padding-left:18px;color:#333;">
+        ${learned.map(c => `<li>${escapeHtml(c)}</li>`).join("")}
+      </ul>
+    </div>`;
+  }
+
+  // ── Fallback mistakes (nếu không có violations mà có mistakes)
+  if (violations.length === 0 && mistakes.length > 0) {
+    html += `<div style="padding:10px 14px;border-bottom:1px solid #eee;border-left:3px solid #d9534f;">
+      <strong style="color:#d9534f;">Điểm cần khắc phục:</strong>
+      <ul style="margin:6px 0 0 0;padding-left:18px;color:#333;">
+        ${mistakes.map(m => `<li>${escapeHtml(m)}</li>`).join("")}
+      </ul>
+    </div>`;
+  }
+
+  // ── Best scenario (Gherkin chuẩn Manning)
+  if (bestScenario) {
+    html += `<div style="padding:10px 14px;border-bottom:1px solid #eee;">
+      <strong style="color:#007acc;">📝 Kịch bản chuẩn Manning (đề xuất):</strong>
+      <pre style="background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:4px;overflow-x:auto;margin:8px 0 0 0;font-size:12.5px;line-height:1.5;"><code>${escapeHtml(bestScenario)}</code></pre>
+    </div>`;
+  }
+
+  // ── Recommendations (xanh dương)
+  if (recommendations.length > 0) {
+    html += `<div style="padding:10px 14px;border-left:3px solid #007acc;">
+      <strong style="color:#007acc;">💡 Khuyến nghị:</strong>
+      <ul style="margin:6px 0 0 0;padding-left:18px;color:#333;">
+        ${recommendations.map(r => `<li>${escapeHtml(r)}</li>`).join("")}
+      </ul>
+    </div>`;
+  }
+
+  html += `</div>`;
+  appendMessage("SBE Mentor", html);
+}
 
 function escapeHtml(str: string): string {
   const div = document.createElement("div");
@@ -390,9 +517,16 @@ async function sendChatMessage() {
     appendMessage("SBE Mentor", replyHtml);
   } catch (error: any) {
     if (error.name === "TypeError" && error.message.includes("fetch")) {
-      renderErrorCard({ errorCode: "ERR-OFFLINE", error: "Bạn đang mất kết nối mạng. Tin nhắn chưa được gửi." });
+      renderErrorCard({
+        errorCode: "ERR-OFFLINE",
+        error: "Bạn đang mất kết nối mạng. Tin nhắn chưa được gửi.",
+      });
     } else {
-      renderErrorCard({ errorCode: "ERR-CLIENT", error: "Đã xảy ra lỗi kết nối. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ." });
+      renderErrorCard({
+        errorCode: "ERR-CLIENT",
+        error:
+          "Đã xảy ra lỗi kết nối. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
+      });
     }
   } finally {
     chatInput.disabled = false;
@@ -403,7 +537,6 @@ async function sendChatMessage() {
     chatInput.focus();
   }
 }
-
 
 if (chatInput) {
   chatInput.addEventListener("keydown", (e: KeyboardEvent) => {
@@ -466,33 +599,9 @@ btnSend.addEventListener("click", async () => {
       return;
     }
 
-    // Render thông báo chính
-    let aiHtml = `<p>${data.message}</p>`;
+    // Render kết quả phân tích kịch bản theo chuẩn Manning
+    renderScenarioAnalysis(data);
 
-    // Render mảng lỗi sai (chữ đỏ)
-    if (
-      data.analysis &&
-      data.analysis.mistakes &&
-      data.analysis.mistakes.length > 0
-    ) {
-      aiHtml += `<div style="color: #d9534f; border-left: 3px solid #d9534f; padding-left: 10px; margin-top: 10px;">
-                <strong>Điểm cần khắc phục:</strong>
-                <ul style="margin-top: 5px; padding-left: 20px;">`;
-      data.analysis.mistakes.forEach((mistake: string) => {
-        aiHtml += `<li>${mistake}</li>`;
-      });
-      aiHtml += `</ul></div>`;
-    }
-
-    // Render kịch bản tốt nhất (code block)
-    if (data.analysis && data.analysis.best_scenario) {
-      aiHtml += `<div style="margin-top: 10px;">
-                <strong>Kịch bản đề xuất:</strong>
-                <pre style="background: #e9ecef; padding: 10px; border-radius: 4px; overflow-x: auto; color: #1e1e1e;"><code>${data.analysis.best_scenario}</code></pre>
-            </div>`;
-    }
-
-    appendMessage("SBE Mentor", aiHtml);
 
     // Gửi thành công, xóa bản nháp
     localStorage.removeItem("sbe_draft");
@@ -500,16 +609,22 @@ btnSend.addEventListener("click", async () => {
     updateEditorHighlight();
   } catch (error: any) {
     if (error.name === "TypeError" && error.message.includes("fetch")) {
-      renderErrorCard({ errorCode: "ERR-OFFLINE", error: "Bạn đang mất kết nối mạng. Kịch bản đã được lưu nháp an toàn." });
+      renderErrorCard({
+        errorCode: "ERR-OFFLINE",
+        error: "Bạn đang mất kết nối mạng. Kịch bản đã được lưu nháp an toàn.",
+      });
     } else {
-      renderErrorCard({ errorCode: "ERR-CLIENT", error: "Đã xảy ra lỗi kết nối. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ." });
+      renderErrorCard({
+        errorCode: "ERR-CLIENT",
+        error:
+          "Đã xảy ra lỗi kết nối. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
+      });
     }
   } finally {
     btnSend.disabled = false;
     btnSend.textContent = "Gửi Kịch bản";
   }
 });
-
 
 btnRecall.addEventListener("click", async () => {
   const currentWeek = parseInt(weekSelector.value, 10) || 1;
@@ -615,16 +730,23 @@ btnRecall.addEventListener("click", async () => {
     appendMessage("SBE Mentor", recallHtml);
   } catch (error: any) {
     if (error.name === "TypeError" && error.message.includes("fetch")) {
-      renderErrorCard({ errorCode: "ERR-OFFLINE", error: "Bạn đang mất kết nối mạng. Tính năng tổng kết yêu cầu kết nối tới Edge Server." });
+      renderErrorCard({
+        errorCode: "ERR-OFFLINE",
+        error:
+          "Bạn đang mất kết nối mạng. Tính năng tổng kết yêu cầu kết nối tới Edge Server.",
+      });
     } else {
-      renderErrorCard({ errorCode: "ERR-CLIENT", error: "Đã xảy ra lỗi kết nối. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ." });
+      renderErrorCard({
+        errorCode: "ERR-CLIENT",
+        error:
+          "Đã xảy ra lỗi kết nối. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
+      });
     }
   } finally {
     btnRecall.disabled = false;
     btnRecall.textContent = "Tổng kết (Recall)";
   }
 });
-
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {

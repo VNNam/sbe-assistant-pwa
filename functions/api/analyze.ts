@@ -23,7 +23,8 @@ export async function onRequestPost(context: any) {
       return new Response(
         JSON.stringify({
           errorCode: "ERR-500",
-          error: "Đã xảy ra lỗi cấu hình dịch vụ. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
+          error:
+            "Đã xảy ra lỗi cấu hình dịch vụ. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
         }),
         { status: 500, headers: { "Content-Type": "application/json" } },
       );
@@ -33,7 +34,8 @@ export async function onRequestPost(context: any) {
       return new Response(
         JSON.stringify({
           errorCode: "ERR-500",
-          error: "Đã xảy ra lỗi cấu hình cơ sở dữ liệu. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
+          error:
+            "Đã xảy ra lỗi cấu hình cơ sở dữ liệu. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
         }),
         { status: 500, headers: { "Content-Type": "application/json" } },
       );
@@ -184,7 +186,10 @@ Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức
       let logCode = `HTTP_${httpStatus}`;
       if (httpStatus === 429 || errText.includes("RESOURCE_EXHAUSTED")) {
         logCode = "QUOTA_429";
-      } else if (errText.includes("FAILED_PRECONDITION") || errText.includes("User location is not supported")) {
+      } else if (
+        errText.includes("FAILED_PRECONDITION") ||
+        errText.includes("User location is not supported")
+      ) {
         logCode = "LOCATION_400";
       } else if (httpStatus === 404) {
         logCode = "MODEL_404";
@@ -217,11 +222,18 @@ Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức
         JSON.stringify({
           errorCode: userErr.errorCode,
           error: userErr.userMessage,
-          ...(userErr.retryAfterSeconds !== undefined && { retryAfterSeconds: userErr.retryAfterSeconds }),
+          ...(userErr.retryAfterSeconds !== undefined && {
+            retryAfterSeconds: userErr.retryAfterSeconds,
+          }),
           ...(userErr.isQuota && { isQuota: true }),
         }),
         {
-          status: httpStatus === 429 ? 429 : (httpStatus >= 400 && httpStatus < 500 ? 400 : 503),
+          status:
+            httpStatus === 429
+              ? 429
+              : httpStatus >= 400 && httpStatus < 500
+                ? 400
+                : 503,
           headers: { "Content-Type": "application/json" },
         },
       );
@@ -237,7 +249,9 @@ Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức
         model: activeModel,
         week_id: currentWeek,
         http_status: 200,
-        raw_error: "Gemini trả HTTP 200 nhưng không có nội dung hợp lệ. Response: " + JSON.stringify(geminiData).substring(0, 500),
+        raw_error:
+          "Gemini trả HTTP 200 nhưng không có nội dung hợp lệ. Response: " +
+          JSON.stringify(geminiData).substring(0, 500),
         colo: request.cf?.colo,
       });
       throw new Error("Gemini không trả về nội dung hợp lệ.");
@@ -253,16 +267,22 @@ Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức
         if (codeBlockMatch && codeBlockMatch[1]) {
           parsedRecall = JSON.parse(codeBlockMatch[1].trim());
         }
-      } catch { /* bỏ qua */ }
+      } catch {
+        /* bỏ qua */
+      }
 
       if (!parsedRecall) {
         try {
           const firstBrace = aiText.indexOf("{");
           const lastBrace = aiText.lastIndexOf("}");
           if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-            parsedRecall = JSON.parse(aiText.substring(firstBrace, lastBrace + 1).trim());
+            parsedRecall = JSON.parse(
+              aiText.substring(firstBrace, lastBrace + 1).trim(),
+            );
           }
-        } catch { /* bỏ qua */ }
+        } catch {
+          /* bỏ qua */
+        }
       }
 
       if (!parsedRecall) {
@@ -292,12 +312,15 @@ Lưu ý: "readiness_score" là số nguyên từ 0 đến 100 thể hiện mức
         raw_error: error?.stack || error?.message || String(error),
         colo: request.cf?.colo,
       });
-    } catch { /* không để lỗi log phá vỡ response */ }
+    } catch {
+      /* không để lỗi log phá vỡ response */
+    }
 
     return new Response(
       JSON.stringify({
         errorCode: "ERR-500",
-        error: "Đã xảy ra lỗi trong quá trình tổng kết. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
+        error:
+          "Đã xảy ra lỗi trong quá trình tổng kết. Liên hệ với nhà cung cấp dịch vụ để được hỗ trợ.",
       }),
       {
         status: 500,
