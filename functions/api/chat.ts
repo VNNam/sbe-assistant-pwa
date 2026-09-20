@@ -90,10 +90,13 @@ export async function onRequestPost(context: any) {
 
       Hãy đóng vai trò một người thầy cố vấn (Mentor), trả lời ân cần, giải thích rõ ràng, súc tích và có tính sư phạm cao.
       Nếu câu hỏi liên quan đến lý thuyết SBE hoặc cách viết Gherkin, hãy giải thích kèm ví dụ trực quan.
-      Trả về đúng cấu trúc JSON sau (chỉ JSON, không dùng markdown block):
-      {
-        "message": "Nội dung phản hồi hoàn chỉnh của Mentor (hỗ trợ markdown cơ bản nếu cần nhấn mạnh hoặc viết code ví dụ)."
-      }`;
+
+      QUAN TRỌNG - QUY TẮC PHẢN HỒI BẮT BUỘC:
+      - Chỉ trả về một object JSON hợp lệ, bắt đầu bằng dấu { và kết thúc bằng dấu }.
+      - TUYỆT ĐỐI không thêm bất kỳ text nào bên ngoài JSON (không có "gherkin", không có "Feature:", không có markdown code block như \`\`\`json, không có lời dẫn, không có giải thích sau JSON).
+      - Cấu trúc JSON bắt buộc:
+      {"message": "Nội dung phản hồi hoàn chỉnh của Mentor (hỗ trợ markdown cơ bản nếu cần nhấn mạnh hoặc viết code ví dụ)."}`;
+
     }
 
     // 2. Gọi Gemini REST API với cơ chế Multi-Candidate Fallback & Retry
@@ -214,32 +217,55 @@ export async function onRequestPost(context: any) {
       throw new Error("Gemini không trả về nội dung hợp lệ.");
     }
 
-    // Trích xuất JSON an toàn (hỗ trợ cả markdown code block hoặc preamble text)
-    let parsedAIResponse: any;
+    // Trích xuất JSON an toàn - đa lớp fallback để chống lỗi trên Safari iOS
+    let parsedAIResponse: any = null;
+
+    // Lớp 1: Parse trực tiếp (trường hợp lý tưởng)
     try {
       parsedAIResponse = JSON.parse(aiText.trim());
     } catch {
-      const codeBlockMatch = aiText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-      if (codeBlockMatch && codeBlockMatch[1]) {
-        parsedAIResponse = JSON.parse(codeBlockMatch[1].trim());
-      } else {
-        const firstBrace = aiText.indexOf("{");
-        const lastBrace = aiText.lastIndexOf("}");
-        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-          parsedAIResponse = JSON.parse(
-            aiText.substring(firstBrace, lastBrace + 1).trim(),
-          );
-        } else {
-          // Fallback: nếu Gemini chỉ trả về text thuần
-          parsedAIResponse = { message: aiText.trim() };
+      // Lớp 2: Tìm markdown code block ```json ... ```
+      try {
+        const codeBlockMatch = aiText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        if (codeBlockMatch && codeBlockMatch[1]) {
+          parsedAIResponse = JSON.parse(codeBlockMatch[1].trim());
         }
+      } catch {
+        /* bỏ qua, thử lớp tiếp theo */
+      }
+
+      // Lớp 3: Tìm JSON object đầu tiên trong text (xử lý preamble text như "gherkin\n{...")
+      if (!parsedAIResponse) {
+        try {
+          const firstBrace = aiText.indexOf("{");
+          const lastBrace = aiText.lastIndexOf("}");
+          if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+            parsedAIResponse = JSON.parse(
+              aiText.substring(firstBrace, lastBrace + 1).trim(),
+            );
+          }
+        } catch {
+          /* bỏ qua, thử lớp tiếp theo */
+        }
+      }
+
+      // Lớp 4: Cuối cùng — bọc toàn bộ text thô vào { message }
+      if (!parsedAIResponse) {
+        parsedAIResponse = { message: aiText.trim() };
       }
     }
 
-    // Đảm bảo có message
-    if (!parsedAIResponse.message && typeof parsedAIResponse === "string") {
+    // Đảm bảo luôn có trường message
+    if (typeof parsedAIResponse === "string") {
       parsedAIResponse = { message: parsedAIResponse };
+    } else if (!parsedAIResponse || typeof parsedAIResponse !== "object") {
+      parsedAIResponse = { message: String(aiText).trim() };
+    } else if (!parsedAIResponse.message) {
+      // Khi AI trả JSON nhưng thiếu trường message
+      parsedAIResponse.message =
+        parsedAIResponse.text || parsedAIResponse.content || aiText.trim();
     }
+
 
     // 3. LƯU VÀO DATABASE CLOUDFLARE D1
     if (env.DB) {
